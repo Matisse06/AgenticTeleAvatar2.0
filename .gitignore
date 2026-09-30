@@ -1,0 +1,41 @@
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# --- Build / packaging ---
+build/
+dist/
+*.egg-info/
+CMakeFiles/
+CMakeCache.txt
+cmake-build-*/
+compile_commands.json
+
+# --- Logs / runtime ---
+*.log
+logs/
+tmp/
+temp/
+
+# --- MuJoCo / robotics artifacts ---
+mjkey.txt
+*.mjb
+*.urdf.bak
+*.xml.bak
+recordings/
+screenshots/
+videos/
