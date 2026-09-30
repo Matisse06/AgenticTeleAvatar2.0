@@ -7,8 +7,9 @@ and later training, robot policies, including ones that take camera images: keep
 
 ## Layout
 
-- `mujoco/`: the vendor folder, kept as delivered (`mujoco.zip` is the original). The README steps and the unit tests
-  rewrite `robot.xml`, but its content comes out identical. Put our own code outside this folder.
+- `mujoco/`: the vendor folder, kept as delivered (commit `3baa2b9` is the original; `mujoco.zip` was a byte-identical copy
+  and is no longer tracked). The README steps and the unit tests rewrite `robot.xml`, but its content comes out
+  identical. Put our own code outside this folder.
 - `sim.sh`: runs a command inside the container (ROS 2 Humble + the MuJoCo venv). With no arguments it opens a shell.
 - `env.sh`: paths and the pinned image. `container_rc.sh` is sourced inside the container by `sim.sh`.
 - `setup/setup_env.sbatch`: one-time setup (pulls the image, builds the venv). `setup/requirements.lock`: exact versions.
@@ -30,7 +31,8 @@ and later training, robot policies, including ones that take camera images: keep
   the container. It forces `ROS_LOCALHOST_ONLY=1`, defaults to ROS domain 90 (`SIM_ROS_DOMAIN_ID` overrides it),
   refuses domain 29 (the production robot), and passes the node's timezone (the image defaults to UTC). Python
   bytecode goes to `~/.cache/teleavatar_pycache`, so the vendor's shipped `.pyc` files are never loaded. (They were
-  checked on 2026-09-29: five match their sources, and `smoke_test`'s is stale, so Python would recompile it anyway.)
+  checked on 2026-09-29: five match their sources, and `smoke_test`'s is stale, so Python would recompile it anyway.
+  They are now untracked and gitignored; commit `3baa2b9` still has them.)
 - Nothing on the cluster provided this before: the nodes have no ROS 2, and FASRC's shared SEAS containers
   (`/n/singularity_images/SEAS`) are ROS 1 Melodic and a 2020 mujoco-py image.
 

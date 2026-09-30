@@ -1,10 +1,28 @@
 # --- OS / editor ---
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.nfs*
+
+# --- Claude Code (personal, machine-specific) ---
+.claude/settings.local.json
+CLAUDE.local.md
+
+# --- Secrets / credentials ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+credentials*.json
+mjkey.txt
 
 # --- Python ---
 __pycache__/
@@ -13,26 +31,47 @@ __pycache__/
 .venv/
 venv/
 env/
-.env
-.env.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+.uv_cache/
 
 # --- Build / packaging ---
 build/
 dist/
 *.egg-info/
+*.egg
 CMakeFiles/
 CMakeCache.txt
 cmake-build-*/
 compile_commands.json
 
+# --- ROS 2 / colcon workspace output ---
+install/
+log/
+.colcon/
+
 # --- Logs / runtime ---
 *.log
 logs/
+slurm-*.out
+slurm-*.err
 tmp/
 temp/
 
+# --- HPC / containers / ML artifacts (large; keep outside the repo) ---
+*.sif
+*.ckpt
+*.pt
+*.pth
+wandb/
+
 # --- MuJoCo / robotics artifacts ---
-mjkey.txt
+MUJOCO_LOG.TXT
+/mujoco.zip
 *.mjb
 *.urdf.bak
 *.xml.bak
