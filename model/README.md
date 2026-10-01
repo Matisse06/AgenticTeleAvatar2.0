@@ -2,7 +2,8 @@
 
 The whole robot, built from the vendor's newest description (`vendor/urdf/teleavatar_urdf_20260928.urdf`) and their
 textured meshes:
-- an omni-wheel base that drives on the floor
+- an omni-wheel base: fixed to the floor by default, as in the vendor's simulator, and drivable in an opt-in variant
+  that we added (`scene_mobile.xml`)
 - a 0.74 m lift carrying the torso
 - a head camera
 - two 7-joint arms
@@ -18,8 +19,8 @@ The meshes and textures are not in git (590 MB; GitHub refuses files over 100 MB
 ```bash
 pip install py7zr                                               # on the cluster: ./sim.sh uv pip install py7zr
 python3 setup/unpack_assets.py urdf_20260825_textured9.21.7z    # -> model/vendor/{visual,collision}/, checksummed
-python3 model/convert.py                                        # -> model/robot.xml + model/assets/textures_1024/
-python3 -m unittest discover -s model/tests -v                  # 19 tests, about 10 s
+python3 model/convert.py                                        # -> robot.xml, robot_mobile.xml, textures_1024/
+python3 -m unittest discover -s model/tests -v                  # 21 tests, about 10 s
 ```
 
 Download the archive from the robot's documentation page,
@@ -28,22 +29,27 @@ meshes, so any of them works.
 
 ## Using the model
 
-- Try it: `python3 model/play.py` opens the MuJoCo viewer with the head and wrist cameras' views, keyboard driving
-  and a slider per actuator (its docstring lists the keys).
+- Try it: `python3 model/play.py` opens the MuJoCo viewer with the head and wrist cameras' views and a slider per
+  actuator; `--mobile-base` adds keyboard driving (its docstring lists the keys).
 - Python: `mujoco.MjModel.from_xml_path("model/scene.xml")`; keyframe `home`.
-- 20 actuators:
+- 17 actuators:
   - `armL1`..`armL7`, `armR1`..`armR7` (rad; the first 14, in this order)
   - `lift` (m: 0 is the top, positive lowers the torso, range 0..0.74)
   - `left_gripper`, `right_gripper` (0 = closed .. 1 = open)
-  - `base_x`, `base_y` (m/s), `base_yaw` (rad/s): the base's velocity in the world frame. 0 holds the pose it reached.
-- The base moves kinematically: world-frame joints `base_x`, `base_y`, `base_yaw` carry it (the first three in
-  `qpos`), so it does not slip or tip. Drive it in its own frame with `mobile_base.py`, which also turns the three
-  omni wheels at the speed of rolling without slip (they do not touch the floor). Without its `roll_wheels`, the
-  wheels stay still while the base moves:
+- The base is fixed and the wheels are welded by default, as in the vendor's simulator. The drivable base is ours,
+  so it is opt-in: `scene_mobile.xml` (`robot_mobile.xml`), loaded by `--mobile-base` in `play.py` and
+  `render_video.py`. It adds three actuators after the 17: `base_x`, `base_y` (m/s) and `base_yaw` (rad/s), the base's
+  velocity in the world frame; 0 holds the pose it reached. World-frame joints of the same names carry the base (the
+  first three in `qpos`), so it does not slip or tip. Drive it in its own frame with `mobile_base.py`, which also turns
+  the three omni wheels at the speed of rolling without slip (they do not touch the floor). Every move turns all
+  three: sideways, the rear wheel at full speed and the front two at half speed. Without `roll_wheels` the wheels
+  stay still while the base moves:
 
   ```python
   sys.path.insert(0, "model")  # from the repository root
   from mobile_base import MobileBase
+  model = mujoco.MjModel.from_xml_path("model/scene_mobile.xml")
+  data = mujoco.MjData(model)
   base = MobileBase(model)
   base.command(data, forward=0.3, left=0.0, turn=0.2)  # m/s, m/s, rad/s; every step (it ramps the speed)
   base.roll_wheels(data)
@@ -57,12 +63,12 @@ meshes, so any of them works.
 - Joint angles mean the same as in the vendor model and the ROS API: `l_jointN` is `armLN_joint`, `r_jointN` is
   `armRN_joint`.
 - Videos and stills: `python3 scripts/render_video.py --output outputs/new_wave.mp4` (`--camera head`, etc.;
-  `--motion drive` drives the base).
+  `--mobile-base --motion drive` drives the base).
 
 ## ROS 2 simulator
 
-It has the vendor simulator's API: the same topics, FSM and `l_joint1..7` / `r_joint1..7` names. The lift,
-grippers and base hold their home targets (`--lift`, `--gripper` change them): the API has no base.
+It has the vendor simulator's API: the same topics, FSM and `l_joint1..7` / `r_joint1..7` names. The lift and
+grippers hold their home targets (`--lift`, `--gripper` change them), and the base is fixed: the API has no base.
 
 ```bash
 ./model/run_sim.sh                                   # headless, 200 Hz; --viewer for the MuJoCo viewer
@@ -105,5 +111,5 @@ dataset (training and evaluation alike).
   `trimesh` and `fast-simplification`, and takes about 2 minutes. MuJoCo reads at most 200k faces per STL, and the
   vendor's chassis has 472k, so the raw STLs cannot be used.
 - `assets/visual_<N>/` (not tracked): from `build_visual_lite.py`, which needs `pymeshlab`.
-- `assets/textures_<N>/` (not tracked) and `robot.xml` (tracked): from `convert.py`. The tests rebuild `robot.xml`
-  and fail if that changed it.
+- `assets/textures_<N>/` (not tracked), and `robot.xml`, `robot_mobile.xml` and `scene_mobile.xml` (tracked): from
+  `convert.py`. The tests rebuild the three tracked files and fail if that changed them.

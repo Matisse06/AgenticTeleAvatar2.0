@@ -1,9 +1,10 @@
-"""Tests of the new TeleAvatar model (model/robot.xml, model/scene.xml).
+"""Tests of the new TeleAvatar model: the default with the base fixed (model/robot.xml, scene.xml) and the drivable-base
+variant (robot_mobile.xml, scene_mobile.xml).
 
   python3 -m unittest discover -s model/tests -v
 
-Like the vendor's tests, setUpClass rebuilds robot.xml in place; the test_generated_file_is_up_to_date check fails if
-that changed it (commit the regenerated file). Needs the unpacked vendor meshes (setup/unpack_assets.py).
+Like the vendor's tests, setUpClass rebuilds the generated files in place; test_generated_files_are_up_to_date fails if
+that changed them (commit the regenerated files). Needs the unpacked vendor meshes (setup/unpack_assets.py).
 """
 import importlib.util
 import math
@@ -76,34 +77,42 @@ def urdf_fk(path: Path, q: dict) -> tuple[dict, dict]:
 class ModelTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.output = HERE / "robot.xml"
-        cls.before = cls.output.read_bytes() if cls.output.is_file() else b""
-        convert.build(convert.DEFAULT_URDF, cls.output)
-        cls.after = cls.output.read_bytes()
-        cls.robot = mujoco.MjModel.from_xml_path(str(cls.output))
-        cls.model = mujoco.MjModel.from_xml_path(str(HERE / "scene.xml"))
-        cls.xml = ET.fromstring(cls.after)
+        cls.generated = [convert.DEFAULT_OUTPUT, convert.MOBILE_OUTPUT, convert.MOBILE_SCENE]
+        cls.before = {path: path.read_bytes() if path.is_file() else b"" for path in cls.generated}
+        convert.build_all()
+        cls.after = {path: path.read_bytes() for path in cls.generated}
+        # Three loaded copies at most (about 831 MB each), to fit the cluster's 8 GB jobs.
+        cls.robot = mujoco.MjModel.from_xml_path(str(convert.DEFAULT_OUTPUT))
+        cls.model = mujoco.MjModel.from_xml_path(str(convert.SCENE))          # the default: the base fixed
+        cls.mobile = mujoco.MjModel.from_xml_path(str(convert.MOBILE_SCENE))  # the drivable base
+        cls.xml = ET.fromstring(cls.after[convert.DEFAULT_OUTPUT])
         cls.urdf = ET.parse(convert.DEFAULT_URDF).getroot()
         cls.limits = {j.get("name"): j.find("limit") for j in cls.urdf.findall("joint") if j.find("limit") is not None}
 
-    def home_data(self):
-        data = mujoco.MjData(self.model)
-        mujoco.mj_resetDataKeyframe(self.model, data, self.model.key("home").id)
-        mujoco.mj_forward(self.model, data)
+    def home_data(self, model=None):
+        model = model or self.model
+        data = mujoco.MjData(model)
+        mujoco.mj_resetDataKeyframe(model, data, model.key("home").id)
+        mujoco.mj_forward(model, data)
         return data
 
-    def qpos(self, data, joint):
-        return float(data.qpos[self.model.joint(joint).qposadr[0]])
+    def qpos(self, data, joint, model=None):
+        return float(data.qpos[(model or self.model).joint(joint).qposadr[0]])
 
-    def test_generated_file_is_up_to_date(self):
-        self.assertEqual(self.before, self.after, "robot.xml was stale: convert.py rewrote it; commit the new file")
+    def test_generated_files_are_up_to_date(self):
+        for path in self.generated:
+            self.assertEqual(self.before[path], self.after[path],
+                             f"{path.name} was stale: convert.py rewrote it; commit the new file")
 
     def test_dimensions(self):
         for model in (self.robot, self.model):
-            self.assertEqual((model.nq, model.nv, model.nu, model.na, model.neq), (39, 39, 20, 3, 16))
+            self.assertEqual((model.nq, model.nv, model.nu, model.na, model.neq), (33, 33, 17, 0, 16))
+        mobile = self.mobile
+        self.assertEqual((mobile.nq, mobile.nv, mobile.nu, mobile.na, mobile.neq), (39, 39, 20, 3, 16))
         self.assertEqual([self.robot.camera(i).name for i in range(self.robot.ncam)],
                          ["head", "left_wrist", "right_wrist"])
-        self.assertAlmostEqual(float(self.robot.body_mass.sum()), 85.771, places=2)
+        for model in (self.robot, self.mobile):
+            self.assertAlmostEqual(float(model.body_mass.sum()), 85.771, places=2)
 
     @unittest.skipUnless(VENDOR_URDF.is_file(), "vendor model not present")
     def test_api_joint_angles_mean_the_same_as_in_the_vendor_model(self):
@@ -137,17 +146,33 @@ class ModelTest(unittest.TestCase):
         self.assertLess(float(np.abs(data.efc_pos[rows]).max()), 1e-9)
 
     def test_actuators_match_the_urdf_limits(self):
-        driven = [self.model.joint(self.model.actuator_trnid[index, 0]).name for index in range(self.model.nu)]
-        self.assertEqual(driven[-3:], BASE)  # no URDF joint: see test_base_limits_follow_the_wheel_motors
-        for index, joint in enumerate(driven[:-3]):
+        for index in range(self.model.nu):  # in the default model every actuator drives a URDF joint
+            joint = self.model.joint(self.model.actuator_trnid[index, 0]).name
             limit = self.limits[joint]
             self.assertEqual(list(self.model.actuator_ctrlrange[index]), [float(limit.get("lower")),
                                                                           float(limit.get("upper"))])
             effort = float(limit.get("effort"))
             self.assertEqual(list(self.model.actuator_forcerange[index]), [-effort, effort])
             self.assertEqual(list(self.model.jnt_actfrcrange[self.model.joint(joint).id]), [-effort, effort])
-        self.assertEqual([self.model.actuator(i).name for i in range(14)],
-                         [name.replace("_joint", "") for name in convert.ARM_JOINTS])
+        names = [self.model.actuator(i).name for i in range(self.model.nu)]
+        self.assertEqual(names[:14], [name.replace("_joint", "") for name in convert.ARM_JOINTS])
+        # The drivable variant adds the base's three after them; see test_base_limits_follow_the_wheel_motors.
+        self.assertEqual([self.mobile.actuator(i).name for i in range(self.mobile.nu)], names + BASE)
+
+    def test_the_default_base_is_fixed(self):
+        """As in the vendor's simulator: base_link hangs on the world with no joint, and the wheels are welded."""
+        for body in ("base_link", "wheel1_wheel_link", "wheel2_wheel_link", "wheel3_wheel_link"):
+            self.assertEqual(int(self.model.body(body).jntnum[0]), 0, body)
+            self.assertGreater(int(self.mobile.body(body).jntnum[0]), 0, body)
+        with self.assertRaisesRegex(ValueError, "scene_mobile.xml"):
+            mobile_base.MobileBase(self.model)
+
+    def test_scene_mobile_is_scene_with_the_drivable_robot(self):
+        scene = convert.SCENE.read_text().splitlines()
+        mobile = convert.MOBILE_SCENE.read_text().splitlines()
+        self.assertEqual(mobile[3], '  <include file="robot_mobile.xml"/>')
+        self.assertEqual(scene[2], '  <include file="robot.xml"/>')
+        self.assertEqual(mobile[2:3] + mobile[4:], scene[1:2] + scene[3:])  # all else alike, the header aside
 
     def test_joint_damping_and_friction_come_from_the_damping_document(self):
         for side in "LR":
@@ -174,19 +199,20 @@ class ModelTest(unittest.TestCase):
             np.testing.assert_allclose(data.body(body).xpos, links[body][:3, 3] + offset, atol=1e-9, err_msg=body)
 
     def test_robot_stands_on_the_floor_without_contacts_at_home(self):
-        data = self.home_data()
-        self.assertEqual(data.ncon, 0)
-        lowest = {}
-        for geom in range(self.model.ngeom):
-            mesh = self.model.geom_dataid[geom]
-            if self.model.geom_type[geom] != mujoco.mjtGeom.mjGEOM_MESH:
-                continue
-            start, count = self.model.mesh_vertadr[mesh], self.model.mesh_vertnum[mesh]
-            vertices = self.model.mesh_vert[start:start + count] @ data.geom_xmat[geom].reshape(3, 3).T
-            name = self.model.body(self.model.geom_bodyid[geom]).name
-            lowest[name] = min(lowest.get(name, np.inf), float((vertices[:, 2] + data.geom_xpos[geom][2]).min()))
-        self.assertLess(abs(min(lowest[f"wheel{i}_wheel_link"] for i in (1, 2, 3))), 0.001)
-        self.assertGreater(min(lowest.values()), -0.001)
+        for model in (self.model, self.mobile):
+            data = self.home_data(model)
+            self.assertEqual(data.ncon, 0)
+            lowest = {}
+            for geom in range(model.ngeom):
+                mesh = model.geom_dataid[geom]
+                if model.geom_type[geom] != mujoco.mjtGeom.mjGEOM_MESH:
+                    continue
+                start, count = model.mesh_vertadr[mesh], model.mesh_vertnum[mesh]
+                vertices = model.mesh_vert[start:start + count] @ data.geom_xmat[geom].reshape(3, 3).T
+                name = model.body(model.geom_bodyid[geom]).name
+                lowest[name] = min(lowest.get(name, np.inf), float((vertices[:, 2] + data.geom_xpos[geom][2]).min()))
+            self.assertLess(abs(min(lowest[f"wheel{i}_wheel_link"] for i in (1, 2, 3))), 0.001)
+            self.assertGreater(min(lowest.values()), -0.001)
 
     def test_arms_hold_home(self):
         data = self.home_data()
@@ -197,9 +223,11 @@ class ModelTest(unittest.TestCase):
         self.assertLess(error, 0.005)
         self.assertTrue(np.isfinite(data.qpos).all())
 
+    # The drivable base (scene_mobile.xml)
+
     def test_base_limits_follow_the_wheel_motors(self):
         """Force limits: the wheel motors' URDF effort along their rolling directions. Speeds: within the motors'."""
-        base = mobile_base.MobileBase(self.model)
+        base = mobile_base.MobileBase(self.mobile)
         wrench = np.array([[*rolling, centre[0] * rolling[1] - centre[1] * rolling[0]]
                            for centre, rolling in zip(base.centres, base.rolling)]).T  # wheel forces -> Fx, Fy, Mz
         wheel = self.limits[convert.WHEELS[0]]
@@ -208,20 +236,20 @@ class ModelTest(unittest.TestCase):
         self.assertAlmostEqual(min(force_x, force_y), convert.BASE_FORCE, delta=1.0)
         self.assertAlmostEqual(torque, convert.BASE_TORQUE, delta=1.0)
         for name, force in zip(BASE, (convert.BASE_FORCE, convert.BASE_FORCE, convert.BASE_TORQUE)):
-            self.assertEqual(list(self.model.actuator(name).forcerange), [-force, force])
+            self.assertEqual(list(self.mobile.actuator(name).forcerange), [-force, force])
         limits = np.array([convert.BASE_SPEED, convert.BASE_SPEED, convert.BASE_TURN_RATE])
         fastest = np.abs(wrench.T).max(axis=0) * limits / base.radius  # wheel speed at each full-speed command
         self.assertLess(float(fastest.max()), float(wheel.get("velocity")))
 
     def test_base_drives_and_holds_its_pose(self):
-        data = self.home_data()
-        base = mobile_base.MobileBase(self.model)
+        data = self.home_data(self.mobile)
+        base = mobile_base.MobileBase(self.mobile)
 
         def drive(seconds, **command):
-            for _ in range(round(seconds / self.model.opt.timestep)):
+            for _ in range(round(seconds / self.mobile.opt.timestep)):
                 base.command(data, **command)
                 base.roll_wheels(data)
-                mujoco.mj_step(self.model, data)
+                mujoco.mj_step(self.mobile, data)
 
         drive(2.0, forward=0.3)
         # Straight ahead the front wheels roll in opposite directions and the rear wheel only slides on its rollers.
@@ -236,41 +264,42 @@ class ModelTest(unittest.TestCase):
         drive(1.0)
         np.testing.assert_allclose(base.pose(data), (0.6 - 0.4 * math.sin(1.0), 0.4 * math.cos(1.0), 1.0), atol=1e-3)
         for joint in convert.ARM_JOINTS:  # back at home, within the dead band that joint friction leaves the servo
-            error = self.qpos(data, joint) - self.model.key("home").qpos[self.model.joint(joint).qposadr[0]]
-            friction = float(self.model.dof_frictionloss[self.model.joint(joint).dofadr[0]])
+            home = self.mobile.key("home").qpos[self.mobile.joint(joint).qposadr[0]]
+            error = self.qpos(data, joint, self.mobile) - home
+            friction = float(self.mobile.dof_frictionloss[self.mobile.joint(joint).dofadr[0]])
             self.assertLess(abs(error), 1.1 * friction / convert.ARM_KP, joint)
         self.assertEqual(data.ncon, 0)
         self.assertTrue(np.isfinite(data.qpos).all())
 
     def test_wheels_roll_without_slipping(self):
         """At any base velocity, each wheel's lowest point has no velocity along the wheel's rolling direction."""
-        data = self.home_data()
-        base = mobile_base.MobileBase(self.model)
+        data = self.home_data(self.mobile)
+        base = mobile_base.MobileBase(self.mobile)
         data.qpos[base.qadr[2]] = 0.7  # turned, so that the world and base frames differ
         data.qvel[base.dadr] = (0.3, -0.2, 0.5)
         base.roll_wheels(data)
-        mujoco.mj_forward(self.model, data)
+        mujoco.mj_forward(self.mobile, data)
         velocity = np.zeros(6)
         for wheel in convert.WHEELS:
-            joint = self.model.joint(wheel)
+            joint = self.mobile.joint(wheel)
             # [rot, lin] at the body frame's origin, the wheel centre (mjOBJ_BODY would give it at the centre of mass)
-            mujoco.mj_objectVelocity(self.model, data, mujoco.mjtObj.mjOBJ_XBODY, joint.bodyid[0], velocity, 0)
+            mujoco.mj_objectVelocity(self.mobile, data, mujoco.mjtObj.mjOBJ_XBODY, joint.bodyid[0], velocity, 0)
             bottom = velocity[3:] + np.cross(velocity[:3], [0.0, 0.0, -base.radius])
             rolling = np.cross(data.xaxis[joint.id], [0.0, 0.0, 1.0])
             self.assertLess(abs(float(bottom @ rolling)), 1e-9, wheel)
         self.assertGreater(float(np.abs(data.qvel[base.wheel_dofs]).min()), 0.5)
 
     def test_base_holds_its_pose_while_the_arms_move(self):
-        data = self.home_data()
-        base = mobile_base.MobileBase(self.model)
-        arms = np.array([self.model.actuator(name.replace("_joint", "")).id for name in convert.ARM_JOINTS])
+        data = self.home_data(self.mobile)
+        base = mobile_base.MobileBase(self.mobile)
+        arms = np.array([self.mobile.actuator(name.replace("_joint", "")).id for name in convert.ARM_JOINTS])
         swing = data.ctrl[arms] + np.tile([0.4, 0.4, 0, 0, 0, 0, 0], 2)
         drift = 0.0
-        for target in (np.clip(swing, *self.model.actuator_ctrlrange[arms].T), data.ctrl[arms].copy()):
+        for target in (np.clip(swing, *self.mobile.actuator_ctrlrange[arms].T), data.ctrl[arms].copy()):
             data.ctrl[arms] = target
             for _ in range(500):
                 base.roll_wheels(data)
-                mujoco.mj_step(self.model, data)
+                mujoco.mj_step(self.mobile, data)
                 drift = max(drift, float(np.hypot(*base.pose(data)[:2])))
         self.assertLess(drift, 0.002)
         self.assertLess(abs(base.pose(data)[2]), 0.002)

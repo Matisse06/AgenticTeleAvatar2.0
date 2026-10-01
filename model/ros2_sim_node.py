@@ -4,8 +4,8 @@
 Same topics, messages, FSM and command validation as mujoco/ros2_sim_node.py (it loads that file's helpers), so
 clients written for the vendor simulator, such as mujoco/test_control.py, work unchanged. The API's l_joint1..7 and
 r_joint1..7 are this model's armL1..7_joint and armR1..7_joint (same angle conventions). As in the vendor simulator,
-the lift, grippers and base have no API: they hold the home keyframe's targets (--lift and --gripper change them),
-so the base stays where it starts.
+the lift and grippers have no API: they hold the home keyframe's targets, which --lift and --gripper change. The base
+is fixed (model/scene.xml); with --model model/scene_mobile.xml it is drivable but, having no API either, holds still.
 
   ./model/run_sim.sh                  # headless, 200 Hz joint states
   ./model/run_sim.sh --viewer         # with the MuJoCo viewer

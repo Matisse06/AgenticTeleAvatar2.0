@@ -2,9 +2,10 @@
 
 MuJoCo models and ROS 2 simulators of the lab's TeleAvatar 2.0 robot, set up to run on FASRC's Cannon cluster:
 
-- `model/`: **the model to use**. It is the whole robot: an omni-wheel base that drives on the floor, a 0.74 m lift
-  carrying the torso, a head camera, two 7-joint arms, and parallel grippers with wrist cameras. Our converter builds
-  it from the vendor's newest URDF (`teleavatar_urdf_20260928`) and textured meshes. Read `model/README.md` first.
+- `model/`: **the model to use**. It is the whole robot: an omni-wheel base (fixed by default, as in the vendor's
+  simulator; drivable in the opt-in `scene_mobile.xml`), a 0.74 m lift carrying the torso, a head camera, two 7-joint
+  arms, and parallel grippers with wrist cameras. Our converter builds it from the vendor's newest URDF
+  (`teleavatar_urdf_20260928`) and textured meshes. Read `model/README.md` first.
 - `mujoco/`: the vendor's original dual-arm model and simulator (fixed torso, 14 arm joints, rigid grippers), kept as
   delivered. Read `mujoco/README.md`.
 
@@ -24,12 +25,13 @@ faithful (below).
     git, see `README.md`), downloaded from https://www.dexteleop.com/docs/teleavatar-2/resources/urdf.
     `.gitignore` also covers those downloads left in the repository root, or an archive unpacked there by hand. The
     old model's meshes in `mujoco/` stay in git: they are not on that page.
-  - `convert.py` writes `robot.xml` (tracked) and `assets/textures_1024/` (generated). `scene.xml` adds the floor,
-    lights and three cameras.
+  - `convert.py` writes `robot.xml` (base fixed), `robot_mobile.xml` (drivable base) and `scene_mobile.xml` (all
+    tracked), and `assets/textures_1024/` (generated). `scene.xml` adds the floor, lights and three cameras;
+    `scene_mobile.xml` is the same with the drivable robot.
   - `assets/collision/` (tracked, 6 MB): convex collision pieces made by `build_collision.py`.
     `build_visual_lite.py` makes optional lighter visual meshes (`assets/visual_<N>/`, gitignored).
-  - `mobile_base.py`: drives the base in the robot's frame and rolls its wheels. `play.py`: the interactive viewer.
-  - `ros2_sim_node.py`, `run_sim.sh`, `smoke_test.py`: the ROS 2 simulator. `tests/test_model.py`: 19 unit tests.
+  - `mobile_base.py`: drives the drivable base in the robot's frame and rolls its wheels. `play.py`: the viewer.
+  - `ros2_sim_node.py`, `run_sim.sh`, `smoke_test.py`: the ROS 2 simulator. `tests/test_model.py`: 21 unit tests.
 - `mujoco/`: the vendor folder, kept as delivered (commit `3baa2b9` is the original; `mujoco.zip` was a byte-identical
   copy and is no longer tracked). The README steps and the unit tests rewrite `robot.xml`, but its content comes out
   identical. Put our own code outside this folder. `model/` imports two vendor files (the helpers in
@@ -71,20 +73,25 @@ the wrong sign on those seven joints. A unit test guards this, so `l_jointN` / `
 
 ### What is in it (48 URDF links, 85.8 kg)
 
-- **Base**: `base_link` (chassis and lift column, 51.7 kg) drives on the floor, its wheel axles 89.7 mm up (the
-  wheels are 179.4 mm across). ASSUMED: it moves kinematically, so it neither slips nor tips:
+- **Base**: `base_link` (chassis and lift column, 51.7 kg) stands on the floor, its wheel axles 89.7 mm up (the
+  wheels are 179.4 mm across). By default (`robot.xml`, `scene.xml`) it is fixed to the world and the three wheels are
+  welded, as in the vendor's simulator. The drivable base is ours, so it is opt-in: `robot_mobile.xml` /
+  `scene_mobile.xml`, loaded by `--mobile-base` in `play.py` and `render_video.py` (the user's call, 2026-10-01, for
+  safety). ASSUMED, in that variant: the base moves kinematically, so it neither slips nor tips:
   - World-frame joints carry it: `base_x` and `base_y` (slides) and `base_yaw` (a hinge about `base_link`'s origin).
-    They come first in `qpos`; the first 17 actuators keep their order.
+    They come first in `qpos` (39 values against the default's 33); its first 17 actuators are the default's.
   - The actuators of the same names take world-frame velocity commands, up to 1 m/s and 1.5 rad/s, and hold the
     reached pose at 0. They are integrated-velocity servos, critically damped at 10 Hz, so both arms jumping 0.4 rad
     move the base 0.34 mm and 0.23 deg. Their force limits (360 N, 209 N m) are what the wheel motors' 20 N m (URDF)
     can push along the wheels' rolling directions.
   - The three omni wheels (the URDF's continuous joints, 120 deg apart; the front pair 0.290 m from the base origin,
     the rear one 0.357 m) are unactuated hinges that never touch the floor. `MobileBase.roll_wheels` spins them at the
-    speed of rolling without slip; a test checks that against MuJoCo's own kinematics. Code that steps the model
-    without it (`python -m mujoco.viewer`, the vendor's `play.py`) moves the base but leaves the wheels still.
+    speed of rolling without slip; a test checks that against MuJoCo's own kinematics. Every move turns all three:
+    driving sideways spins the rear wheel at full speed and the front pair at half speed (their rolling directions are
+    60 deg from sideways), while their rollers slide along their axles. Code that steps the model without
+    `roll_wheels` (`python -m mujoco.viewer`, the vendor's `play.py`) moves the base but leaves the wheels still.
   - `MobileBase.command` takes commands in the robot's frame and ramps them at 1 m/s^2 and 2 rad/s^2 (NOMINAL).
-  - The vendor API has no chassis (`enable_chassis: false`), so the ROS simulator keeps the base where it starts.
+  - The vendor API has no chassis (`enable_chassis: false`), so the ROS simulator loads the fixed base.
 - **Lift**: `lift_carriage_joint` slides from 0 (top) to 0.74 m. **Positive values lower the torso.** It is rated
   1352 N and 0.5 m/s, and carries `body_link` (torso), `eye_Link` (head camera) and both arms. Home is 0.136 m
   (NOMINAL), which puts the shoulder joints 1.27 m above the floor as in the vendor model.
@@ -133,9 +140,10 @@ the wrong sign on those seven joints. A unit test guards this, so `l_jointN` / `
   - the gripper input's damping 0.12 and friction 0.08 (table 1)
 - **NOMINAL** (the vendor publishes none):
   - position gains: arms kp 120 / kv 8 (the vendor model's), lift kp 20000 / kv 2000 / damping 100, gripper
-    kp 4 / kv 0.2, base kp 340000 / kv 10800 (yaw 17000 / 545)
-  - base command limits 1 m/s and 1.5 rad/s (the wheel motors' 18.84 rad/s would allow 1.7 m/s and 4.7 rad/s), the
-    ramp in `mobile_base.py`, and the base's travel of 4.5 m either way, which keeps it on `scene.xml`'s floor
+    kp 4 / kv 0.2, and in the drivable variant base kp 340000 / kv 10800 (yaw 17000 / 545)
+  - drivable variant: base command limits 1 m/s and 1.5 rad/s (the wheel motors' 18.84 rad/s would allow 1.7 m/s
+    and 4.7 rad/s), the ramp in `mobile_base.py`, and the base's travel of 4.5 m either way, which keeps it on the
+    scene's floor
   - armature: arms 0.02 (the vendor model's), linkage joints 0.0002
   - camera fovy 58 deg
   - timestep 2 ms with `implicitfast`; elliptic friction cones with `impratio` 10 (MuJoCo's advice for grasping)
@@ -152,8 +160,8 @@ the wrong sign on those seven joints. A unit test guards this, so `l_jointN` / `
   pieces (32 for the chassis and the gripper bases). A part keeps a single hull when the pieces fill at least 85% of
   it, and left and right decide together, which gives 323 pieces. Collision geoms are in group 3 (hidden), visuals in
   group 2 (no contacts), so there are no grey copies.
-- **66 contact exclusions**: the three wheels against the floor (the base joints carry the robot), and these, from
-  sweeping the lift and 3000 random poses:
+- **63 contact exclusions** (66 in the drivable variant, which adds the three wheels against the floor, since its base
+  joints carry the robot), from sweeping the lift and 3000 random poses:
   - the carriage, which runs inside the column
   - wrist link 5, which sits inside the gripper housing
   - within each gripper, every pair except finger A against finger B
@@ -165,10 +173,11 @@ the wrong sign on those seven joints. A unit test guards this, so `l_jointN` / `
   - no contacts at home, and the arms hold home exactly (friction plus gravity compensation)
   - the gripper tracks 0, 0.5 and 1, with the constraints holding to 1e-7
   - it grasps a 4 cm box and keeps it while the lift rises 10 cm (the box rises 96 of 100 mm)
-  - the base drives 0.6 m ahead, turns 1 rad and moves 0.4 m sideways, each to within 1 mm, with no contacts. The
-    arms then rest within joint friction's dead band (up to 0.0063 rad for joint 2: 0.751 N m against kp 120).
-  - physics runs 38x real time on one core (`mj_step` alone; the fixed-base build ran 40x), and 22x with the Python
-    `MobileBase` calls every step
+  - in the drivable variant, the base drives 0.6 m ahead, turns 1 rad and moves 0.4 m sideways, each to within 1 mm,
+    with no contacts. The arms then rest within joint friction's dead band (up to 0.0063 rad for joint 2: 0.751 N m
+    against kp 120).
+  - physics runs 40x real time on one core with the base fixed; the drivable variant runs 38x (`mj_step` alone) and
+    22x with the Python `MobileBase` calls every step
 
 ### Open questions for the vendor (the simulation runs without the answers)
 
@@ -240,14 +249,15 @@ partition was down for maintenance until 2026-10-02; `shared` works.
   - vendor model: `cd mujoco` and the README commands as written
 - Videos to open in VS Code: `./sim.sh python3 scripts/render_video.py --output outputs/wave.mp4`. Options:
   `--motion hold|wave|drive`, `--duration`, `--camera` (also `head`, `left_wrist`, `right_wrist`), `--model
-  mujoco/scene.xml`; a `.png` output renders one still of the home keyframe. On the new model, `wave` also opens and
-  closes the grippers, and `drive` drives the base around a square and back (12 s). An 8 s clip at 960x720 takes
+  mujoco/scene.xml`, `--mobile-base`; a `.png` output renders one still of the home keyframe. On the new model, `wave`
+  also opens and closes the grippers, and `drive` (with `--mobile-base`) drives the base around a square and back
+  (12 s). An 8 s clip at 960x720 takes
   about 5 minutes on 4 CPU threads for the new model (about 2 with the lighter visual meshes), about 80 s for the
   vendor model, and 4 s on a GPU.
-- Live viewer: `python3 model/play.py` (camera insets, keyboard driving, a slider per actuator; its docstring lists
-  the keys) or `./model/run_sim.sh --viewer`. VS Code has no display, so on the cluster use an Open OnDemand Remote
-  Desktop (https://rcood.rc.fas.harvard.edu, Interactive Apps, Remote Desktop, CPU partition, no GPU) and run the
-  same `sim.sh` commands from its terminal.
+- Live viewer: `python3 model/play.py` (camera insets and a slider per actuator; `--mobile-base` adds keyboard
+  driving; its docstring lists the keys) or `./model/run_sim.sh --viewer`. VS Code has no display, so on the
+  cluster use an Open OnDemand Remote Desktop (https://rcood.rc.fas.harvard.edu, Interactive Apps, Remote Desktop,
+  CPU partition, no GPU) and run the same `sim.sh` commands from its terminal.
   - Speed in software rendering: the vendor model runs at about 1.7 fps and takes 10 to 20 s to show the robot. The
     new model is about 6x slower (Xvfb test, 2026-10-01); use `--visual-faces 50000` for it, and `play.py
     --no-cameras`, since each inset is another software render.
@@ -335,14 +345,17 @@ partition was down for maintenance until 2026-10-02; `shared` works.
   `play.py` renders the robot (`outputs/verify/viewer_play.png`, local).
 - 2026-10-01, the new model, on the lab workstation Woodbury-Lambda-Vector. It runs Ubuntu 22.04 with ROS 2 rolling
   (not Humble) and 2x RTX 6000 Ada; the test environment was a scratch venv with mujoco 3.14.0, numpy 1.26.4 and
-  pillow 12.3.0, as in `requirements.lock`. Passed, after the base became drivable:
-  - the 19 unit tests, with ROS sourced (none skipped) and ResourceWarnings as errors
+  pillow 12.3.0, as in `requirements.lock`. Passed, after the drivable base became the opt-in variant:
+  - the 21 unit tests, with ROS sourced (none skipped) and ResourceWarnings as errors
+  - the default `robot.xml` differs from the fixed-base build of that morning only in its header comment, and
+    `robot_mobile.xml` is byte-identical to the drivable `robot.xml` first pushed (commit `98399bd`)
   - `smoke_test.py`
   - the vendor's `test_control.py --reordered-names` against `model/run_sim.sh`: target within 0.0073 rad and start
     restored within 0.0075 rad, about 9x tighter than the vendor model, mostly from gravity compensation
   - `render_video.py` on both models; `--motion drive` brings the base back to its start within 1.3 mm and 0.01 deg
   - `model/play.py`: on this workstation's display (NVIDIA), the window opens with the camera insets; under Xvfb,
-    also arrow and keypad driving (the wheel readout matched hand-computed speeds), End, and exit code 0
+    also arrow and keypad driving with `--mobile-base` (the wheel readout matched hand-computed speeds), End, the
+    drive keys doing nothing without it, and exit code 0
   - `run_sim.sh --viewer` stopped with Ctrl-C: exit code 0 in 3 of 3 runs (Xvfb)
   - every converter option compiles
   - `robot.xml` is reproduced byte-identically (with symlinked mesh folders too, tested before the base was added)

@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Play with the TeleAvatar model in the MuJoCo viewer: the robot's camera views, keyboard driving, actuator sliders.
+"""Play with the TeleAvatar model in the MuJoCo viewer: the robot's camera views, actuator sliders, keyboard driving.
 
-  python3 model/play.py                # needs a display (on the cluster, a Remote Desktop: see CLAUDE.md)
+  python3 model/play.py                # the base fixed, as in the vendor's simulator (model/scene.xml)
+  python3 model/play.py --mobile-base  # the drivable base we added (model/scene_mobile.xml)
   python3 model/play.py --no-cameras   # without the camera insets
 
-It starts at the home keyframe and runs in real time, with the view following the robot (Esc frees it).
+It needs a display (on the cluster, a Remote Desktop: see CLAUDE.md). It starts at the home keyframe and runs in real
+time, with the view following the robot (Esc frees it).
 - Insets (right): what the head and wrist cameras see, rendered like render_video.py's images.
 - Control panel (right): a slider per actuator. Arms in rad; lift in m (0 is the top, positive lowers the torso);
-  grippers from 0 (closed) to 1 (open); the base's velocity in the world frame: base_x and base_y in m/s, base_yaw in
-  rad/s (0 holds the pose). While the keyboard drives, it sets the base sliders.
-- Keys: Up / Down change the forward speed and Left / Right the turn rate, one step per press; on the keypad, 8 / 2
-  forward and back, 4 / 6 sideways, 7 / 9 turn. End or keypad 5 stops; Backspace returns home; Space pauses.
-  The viewer's own keys also work: [ and ] cycle the cameras, Esc frees the view, Tab hides the left panel,
+  grippers from 0 (closed) to 1 (open). With --mobile-base also the base's velocity in the world frame: base_x and
+  base_y in m/s, base_yaw in rad/s (0 holds the pose); while the keyboard drives, it sets those sliders.
+- Keys: Backspace returns home; Space pauses. With --mobile-base: Up / Down change the forward speed and Left / Right
+  the turn rate, one step per press; on the keypad, 8 / 2 forward and back, 4 / 6 sideways, 7 / 9 turn; End or keypad
+  5 stops. The viewer's own keys also work: [ and ] cycle the cameras, Esc frees the view, Tab hides the left panel,
   double-click selects a body, and Ctrl + right-drag pushes it.
 """
 from __future__ import annotations
@@ -54,18 +56,23 @@ def join_viewer_thread() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", type=Path, default=HERE / "scene.xml")
+    parser.add_argument("--mobile-base", action="store_true",
+                        help="load the drivable-base variant (model/scene_mobile.xml), which we added; the vendor's "
+                             "simulator has a fixed base")
+    parser.add_argument("--model", type=Path, help="default: model/scene.xml, or scene_mobile.xml with --mobile-base")
     parser.add_argument("--no-cameras", action="store_true", help="no camera insets")
     parser.add_argument("--inset-width", type=int, default=192, help="pixels (the insets are 4:3)")
     parser.add_argument("--duration", type=float, default=0.0, help="seconds; 0 runs until the window is closed")
     args = parser.parse_args()
 
-    model = mujoco.MjModel.from_xml_path(str(args.model.resolve()))
+    path = args.model or HERE / ("scene_mobile.xml" if args.mobile_base else "scene.xml")
+    model = mujoco.MjModel.from_xml_path(str(path.resolve()))
     data = mujoco.MjData(model)
     home = model.key("home").id
     mujoco.mj_resetDataKeyframe(model, data, home)
-    base = MobileBase(model)
-    limits = model.actuator_ctrlrange[base.actuators, 1]
+    drivable = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "base_x") >= 0
+    base = MobileBase(model) if drivable else None
+    limits = model.actuator_ctrlrange[base.actuators, 1] if drivable else None
     state = {"command": np.zeros(3), "reset": False, "stop": False, "paused": False}
 
     def on_key(key: int) -> None:  # runs on the viewer's thread
@@ -73,6 +80,8 @@ def main() -> None:
             state["paused"] = not state["paused"]
         elif key == BACKSPACE:
             state["reset"] = True
+        elif not drivable:
+            return
         elif KEYS.get(key, 0) is None:
             state.update(command=np.zeros(3), stop=True)  # also what the base sliders set
         elif key in KEYS:
@@ -102,11 +111,16 @@ def main() -> None:
         return images
 
     def status() -> tuple:
+        paused = "PAUSED" if state["paused"] else ""
+        if not drivable:
+            return (mujoco.mjtFontScale.mjFONTSCALE_150, mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
+                    "base\nkeys\n" + paused,
+                    "fixed, as in the vendor's simulator (--mobile-base drives it)\nBackspace: home   Space: pause\n")
         x, y, yaw = base.pose(data)
         forward, left, turn = state["command"]
         wheels = "  ".join(f"{speed:+.1f}" for speed in base.wheel_speeds(data))
         return (mujoco.mjtFontScale.mjFONTSCALE_150, mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
-                "base\ncommand\nwheels\nkeys\n" + ("PAUSED" if state["paused"] else ""),
+                "base\ncommand\nwheels\nkeys\n" + paused,
                 f"x {x:+.2f} m  y {y:+.2f} m  yaw {math.degrees(yaw):+.0f} deg\n"
                 f"{forward:+.1f} m/s ahead  {left:+.1f} m/s left  {turn:+.2f} rad/s\n"
                 f"{wheels} rad/s\narrows, keypad: drive   End: stop\nBackspace: home   Space: pause")
@@ -135,7 +149,8 @@ def run(args, model, data, base, state, on_key, insets, status) -> None:
                 if state["reset"]:
                     state.update(reset=False, command=np.zeros(3))
                     mujoco.mj_resetDataKeyframe(model, data, home)
-                    base.velocity[:] = 0.0
+                    if base is not None:
+                        base.velocity[:] = 0.0
                     mujoco.mj_forward(model, data)
                     offset = now - data.time
                 if state["stop"]:  # a keyboard command ramps down by itself; speeds set with the sliders stop here
@@ -148,9 +163,10 @@ def run(args, model, data, base, state, on_key, insets, status) -> None:
                     for _ in range(50):  # catch up with the wall clock, at most 0.1 s per frame
                         if data.time + offset >= now:
                             break
-                        if state["command"].any() or base.velocity.any():
-                            base.command(data, *state["command"])
-                        base.roll_wheels(data)
+                        if base is not None:
+                            if state["command"].any() or base.velocity.any():
+                                base.command(data, *state["command"])
+                            base.roll_wheels(data)
                         mujoco.mj_step(model, data)
                     else:
                         offset = now - data.time  # fell behind: run slower than real time instead of jumping

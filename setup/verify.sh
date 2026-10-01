@@ -48,13 +48,14 @@ run "render video" python3 "$TA_DIR/scripts/render_video.py" --model "$TA_DIR/mu
 # The new model (model/, see model/README.md). Its meshes come from the vendor archive: setup/unpack_assets.py.
 cd "$TA_DIR"
 run "new: assets verified" python3 setup/unpack_assets.py --verify-only
-before=$(sha256sum model/robot.xml)
+generated="model/robot.xml model/robot_mobile.xml model/scene_mobile.xml"
+before=$(sha256sum $generated)
 run "new: convert.py" python3 model/convert.py
 run "new: unit tests" python3 -m unittest discover -s model/tests -v
-if [[ $(sha256sum model/robot.xml) == "$before" ]]; then
-  results+=("PASS  new: robot.xml identical after regeneration")
+if [[ $(sha256sum $generated) == "$before" ]]; then
+  results+=("PASS  new: robot.xml, robot_mobile.xml, scene_mobile.xml identical after regeneration")
 else
-  results+=("NOTE  new: robot.xml content changed after regeneration")
+  results+=("NOTE  new: generated model files changed after regeneration")
 fi
 run "new: smoke_test.py" python3 model/smoke_test.py
 ./model/run_sim.sh > "$out/run_sim_new.log" 2>&1 &

@@ -4,13 +4,15 @@
   cd ~/TeleAvatar2.0 && ./sim.sh python3 scripts/render_video.py --output outputs/wave.mp4
   ./sim.sh python3 scripts/render_video.py --output outputs/home.png       # one still of the home keyframe
   ./sim.sh python3 scripts/render_video.py --model mujoco/scene.xml ...    # the vendor's original model
+  ./sim.sh python3 scripts/render_video.py --mobile-base --motion drive --output outputs/drive.mp4
 
-The default model is the new one (model/scene.xml). Motions: 'wave' swings every arm joint sinusoidally around the
-home keyframe (clipped to the actuator ranges) and, on the new model, opens and closes the grippers; 'hold' commands
-the home keyframe, which shows how well the position actuators hold the arms against gravity; 'drive' (new model
-only) drives the base forward, sideways and turning, around a square back to its start, with the wheels rolling. Other
-actuators (the lift, and the base except in 'drive') hold their home targets. Renders on the CPU (Mesa) or a GPU,
-whichever EGL provides.
+The default model is the new one with its base fixed, as in the vendor's simulator (model/scene.xml); --mobile-base
+loads the drivable-base variant we added (model/scene_mobile.xml). Motions: 'wave' swings every arm joint
+sinusoidally around the home keyframe (clipped to the actuator ranges) and, on the new model, opens and closes the
+grippers; 'hold' commands the home keyframe, which shows how well the position actuators hold the arms against
+gravity; 'drive' (needs --mobile-base) drives the base forward, sideways and turning, around a square back to its
+start, with the wheels rolling. Other actuators (the lift, and the base except in 'drive') hold their home targets.
+Renders on the CPU (Mesa) or a GPU, whichever EGL provides.
 """
 import argparse
 import os
@@ -36,7 +38,8 @@ DRIVE = [(1.5, 0.4, 0, 0), (0.5, 0, 0, 0), (1.5, 0, 0.4, 0), (0.5, 0, 0, 0), (QU
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
+    parser.add_argument("--model", type=Path, help="default: model/scene.xml, or scene_mobile.xml with --mobile-base")
+    parser.add_argument("--mobile-base", action="store_true", help="the drivable-base variant of the new model")
     parser.add_argument("--output", type=Path, default=Path("teleavatar.mp4"), help=".mp4 video, or .png for a still")
     parser.add_argument("--motion", choices=("wave", "hold", "drive"), default="wave")
     parser.add_argument("--amplitude", type=float, default=0.3, help="wave amplitude per joint, rad")
@@ -55,7 +58,8 @@ def main() -> None:
                              "policy training or evaluation data")
     args = parser.parse_args()
 
-    model = mujoco.MjModel.from_xml_path(str(args.model.resolve()))
+    path = args.model or DEFAULT_MODEL.with_name("scene_mobile.xml" if args.mobile_base else "scene.xml")
+    model = mujoco.MjModel.from_xml_path(str(path.resolve()))
     model.vis.global_.offwidth = max(model.vis.global_.offwidth, args.width)
     model.vis.global_.offheight = max(model.vis.global_.offheight, args.height)
     if not args.show_collision:
@@ -91,7 +95,7 @@ def main() -> None:
     base = None
     if args.motion == "drive":
         if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "base_x") < 0:
-            parser.error("--motion drive needs the new model, which has a drivable base")
+            parser.error("--motion drive needs the drivable base: add --mobile-base")
         sys.path.insert(0, str(DEFAULT_MODEL.parent))
         from mobile_base import MobileBase
         base = MobileBase(model)

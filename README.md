@@ -1,8 +1,9 @@
 # AgenticTeleAvatar2.0
 
 A MuJoCo simulation of the TeleAvatar 2.0 robot: two 7-joint arms with parallel grippers, a 0.74 m lift carrying the
-torso, a head camera and two wrist cameras, and an omni-wheel base that drives on the floor. A ROS 2 simulator speaks
-the robot's joint API, so clients written for the real arms run against it unchanged.
+torso, a head camera and two wrist cameras, and an omni-wheel base. The base is fixed by default, as in the vendor's
+simulator; a drivable base, which we added, is opt-in (`--mobile-base`). A ROS 2 simulator speaks the robot's joint
+API, so clients written for the real arms run against it unchanged.
 
 ## Quick start
 
@@ -30,15 +31,18 @@ Don't unpack the archive into the repository by hand: it has its own `README.md`
 
 | what | command |
 |---|---|
-| Interactive viewer: the robot's camera views, keyboard driving, a slider per actuator | `python3 model/play.py` |
-| MuJoCo's own viewer (load the `home` key in its Simulation panel; the wheels don't roll there) | `python3 -m mujoco.viewer --mjcf=model/scene.xml` |
-| Video or still, rendered offscreen (`--motion hold\|wave\|drive`, `--camera head`, ...) | `python3 scripts/render_video.py --output outputs/wave.mp4` |
+| Interactive viewer: the robot's camera views and a slider per actuator | `python3 model/play.py` |
+| ... with the drivable base (keyboard driving) | `python3 model/play.py --mobile-base` |
+| MuJoCo's own viewer (load the `home` key in its Simulation panel) | `python3 -m mujoco.viewer --mjcf=model/scene.xml` |
+| Video or still, rendered offscreen (`--motion hold\|wave`, `--camera head`, ...) | `python3 scripts/render_video.py --output outputs/wave.mp4` |
+| ... the base driving around a square | `python3 scripts/render_video.py --mobile-base --motion drive --output outputs/drive.mp4` |
 | ROS 2 simulator with the robot's arm API (`--viewer` to watch it) | `./model/run_sim.sh` |
 | The vendor's ROS client against it | `python3 mujoco/test_control.py --reordered-names` |
-| Unit tests (19, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
+| Unit tests (21, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
 
-In `play.py`: Up and Down change the driving speed, Left and Right the turn rate, keypad 4 and 6 move sideways, End
-stops, Backspace returns home and Space pauses. `[` and `]` switch the view to the robot's cameras.
+In `play.py`: Backspace returns home, Space pauses, and `[` and `]` switch the view to the robot's cameras. With
+`--mobile-base`, Up and Down also change the driving speed, Left and Right the turn rate, keypad 4 and 6 move
+sideways, and End stops.
 
 The ROS simulator needs ROS 2 (Humble or later). It uses ROS domain 90 with localhost-only discovery and refuses domain
 29, which is the production robot's.
@@ -66,16 +70,20 @@ textured meshes:
 - From the vendor: kinematics, masses, inertias, joint ranges and torque limits (URDF); arm joint damping and
   friction, measured on the robot.
 - Joint angles mean the same as in the robot's ROS API: `l_jointN` is `armLN_joint`, `r_jointN` is `armRN_joint`.
-- 20 actuators: the 14 arm joints (rad); `lift` (m, 0 is the top); `left_gripper` and `right_gripper` (0 closed, 1
-  open); `base_x`, `base_y`, `base_yaw` (the base's velocity).
+- 17 actuators: the 14 arm joints (rad); `lift` (m, 0 is the top); `left_gripper` and `right_gripper` (0 closed, 1
+  open). The drivable-base variant adds `base_x`, `base_y` and `base_yaw` (the base's velocity).
 - Collision uses simplified convex shapes made from the vendor's meshes (`model/assets/collision/`, in git).
 - Gains, the gripper coupling and the camera fields of view are nominal: the vendor doesn't publish them.
 
-**The base and wheels.** In the URDF the three omni wheels are free-turning joints. In the simulation the base moves
-kinematically: three world-frame joints (`base_x`, `base_y`, `base_yaw`) carry it, and their actuators take velocity
-commands and hold the reached pose at 0. The wheels are hinges that `model/mobile_base.py` spins at the speed of
-rolling without slip, and they don't touch the floor. So the base can't slip or tip. That is an assumption: the
-robot's API has no base interface, and the ROS simulator keeps the base still.
+**The base and wheels.** By default (`model/scene.xml`) the base is fixed to the floor and the wheels don't turn, as
+in the vendor's simulator. We added a drivable base ourselves, so for safety it is opt-in: `--mobile-base` in
+`play.py` and `render_video.py`, or load `model/scene_mobile.xml`. There the base moves kinematically: three
+world-frame joints (`base_x`, `base_y`, `base_yaw`) carry it, and their actuators take velocity commands and hold the
+reached pose at 0. The three omni wheels are hinges that `model/mobile_base.py` spins at the speed of rolling without
+slip; they don't touch the floor, so the base can't slip or tip. With three wheels 120 degrees apart, every move turns
+all of them: driving sideways spins the rear wheel at full speed and the front two at half speed, while their rollers
+slide along their axles. A unit test checks each wheel against MuJoCo's own kinematics. The robot's API has no base
+interface, so the ROS simulator uses the fixed base.
 
 ## Repository
 
@@ -85,5 +93,8 @@ robot's API has no base interface, and the ROS simulator keeps the base still.
 - `CLAUDE.md`: cluster setup (FASRC), every check, and notes on rendering and the model.
 
 Git keeps the code, the small vendor files (URDFs, the joint damping document, the mesh checksums) and the collision
-shapes. Renders and logs (`outputs/`, `logs/`) stay local. The old model in `mujoco/` keeps its meshes in git, because
-they are not on the website.
+shapes. The collision shapes (`model/assets/collision/`, 323 `.obj` files, 5 MB) are ours, not the vendor's: convex
+pieces that `model/build_collision.py` cuts from the vendor's meshes. They can't be downloaded, and regenerating them
+needs extra packages (CoACD) and may not give identical pieces on another machine, so git keeps them and everyone
+simulates the same contacts. Renders and logs (`outputs/`, `logs/`) stay local. The old model in `mujoco/` keeps its
+meshes in git, because they are not on the website.
