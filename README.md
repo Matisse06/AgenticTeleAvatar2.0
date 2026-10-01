@@ -1,5 +1,14 @@
 # AgenticTeleAvatar2.0
 
+> **Known discrepancy, waiting for the vendor's answer (2026-10-01).** For joint 3 of both arms, the limits in the
+> vendor's newest URDF, which the simulator uses, disagree with the limits the real robot's software enforces
+> (vendor developer docs, §4.13). The left arm's joint 3 may turn from -85 to +180 degrees in the URDF, but from -149
+> to +74 degrees on the robot; the right arm is the mirror image. So in simulation joint 3 can reach angles the robot
+> refuses, and it stops short of some the robot allows. Until the vendor confirms which is right, keep joint 3 within
+> what both allow: left -1.48 to 1.30 rad (-85 to +74 degrees), right -1.30 to 1.48 rad. Joints 2 and 6 differ
+> slightly (the robot allows up to 0.2 rad more than the URDF). The simulated cameras are also simplified (see
+> [The model](#the-model)).
+
 A MuJoCo simulation of the TeleAvatar 2.0 robot: two 7-joint arms with parallel grippers, a 0.74 m lift carrying the
 torso, a head camera and two wrist cameras, and an omni-wheel base. The base is fixed by default, as in the vendor's
 simulator; a drivable base, which we added, is opt-in (`--mobile-base`). A ROS 2 simulator speaks the robot's joint
@@ -91,7 +100,11 @@ textured meshes:
 - 17 actuators: the 14 arm joints (rad); `lift` (m, 0 is the top); `left_gripper` and `right_gripper` (0 closed, 1
   open). The drivable-base variant adds `base_x`, `base_y` and `base_yaw` (the base's velocity).
 - Collision uses simplified convex shapes made from the vendor's meshes (`model/assets/collision/`, in git).
-- Gains, the gripper coupling and the camera fields of view are nominal: the vendor doesn't publish them.
+- Gains and the gripper coupling are nominal: the vendor doesn't publish them.
+- The cameras are simplified: each is a single undistorted (pinhole) camera with a nominal 58 degree field of view.
+  The real robot has stereo fisheye pairs (head 960 x 960 per eye, wrists 640 x 400), calibrated for each robot, so
+  simulated images don't look exactly like real ones. Account for that before training a policy for the real robot on
+  them.
 
 **The base and wheels.** By default (`model/scene.xml`) the base is fixed to the floor and the wheels don't turn, as
 in the vendor's simulator. We added a drivable base ourselves, so for safety it is opt-in: `--mobile-base` in

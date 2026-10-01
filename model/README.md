@@ -37,6 +37,8 @@ meshes, so any of them works.
   - `armL1`..`armL7`, `armR1`..`armR7` (rad; the first 14, in this order)
   - `lift` (m: 0 is the top, positive lowers the torso, range 0..0.74)
   - `left_gripper`, `right_gripper` (0 = closed .. 1 = open)
+- Joint 3's range in the URDF disagrees with the real robot's software limits; until the vendor answers, keep it
+  within both (see the note at the top of `../README.md`).
 - The base is fixed and the wheels are welded by default, as in the vendor's simulator. The drivable base is ours,
   so it is opt-in: `scene_mobile.xml` (`robot_mobile.xml`), loaded by `--mobile-base` in `play.py` and
   `render_video.py`. It adds three actuators after the 17: `base_x`, `base_y` (m/s) and `base_yaw` (rad/s), the base's
@@ -59,6 +61,8 @@ meshes, so any of them works.
 - Cameras:
   - on the robot: `head`, `left_wrist`, `right_wrist`
   - in the scene: `overview`, `front`, `left_side`
+  - Simplified: one undistorted (pinhole) camera at each spot, with a nominal 58 deg field of view. The real ones are
+    stereo fisheye pairs, calibrated for each robot (see `CLAUDE.md`), so simulated images differ from real ones.
 - Sites (the URDF's reference frames): `left_ee`, `right_ee`, `left_shoulder_base`, `right_shoulder_base`
   (each shoulder's rotation centre), `virtual_base`; `left/right_base_virtual` are aliases of the shoulder bases.
 - Joint angles mean the same as in the vendor model and the ROS API: `l_jointN` is `armLN_joint`, `r_jointN` is

@@ -131,6 +131,15 @@ the wrong sign on those seven joints. A unit test guards this, so `l_jointN` / `
 | 6 | -1.2865 .. 1.2865 | -0.15 | -1.2865 .. 1.2865 | 0.55 | 0.026 | 0.117 |
 | 7 | -0.7435 .. 0.7435 | 0.60 | -0.7435 .. 0.7435 | -0.52 | 0.015 | 0.121 |
 
+Open question for the vendor (2026-10-01): joint 3's URDF range disagrees with the real robot's software limits
+(developer docs §4.0.4 and §4.13): `l_joint3` -2.6 .. 1.3 and `r_joint3` -1.3 .. 2.6, as in the vendor's 20260625
+URDF. The joint turns the same way in both files (`test_api_joint_angles_mean_the_same_as_in_the_vendor_model`), so
+the two ranges are mirror images: the robot allows -2.6 where the URDF stops the left joint at -1.48. The 20260922
+URDF has the same physical range (its left joints 3 and 4 turned the other way, which 20260928 fixed). Until the
+vendor answers, keep joint 3 within the overlap: left -1.4835 .. 1.3, right -1.3 .. 1.4835. The model's limits are
+unchanged. The robot also allows a little more than the URDF on joints 2 (1.9 against 1.7) and 6 (1.4 against
+1.2865); on the other joints its limits lie inside the URDF's ranges.
+
 ### Where the simulation values come from
 
 - **From the vendor**:
@@ -332,8 +341,20 @@ partition was down for maintenance until 2026-10-02; `shared` works.
     `spec.body(...).add_camera(name=..., pos=..., quat=...)`, `spec.compile()`. On the vendor model, the head belongs
     to `base_link` and the wrists are `Link-L7` / `Link-R7`.
   - Gotchas: a ROS optical frame looks along +z with y down, a MuJoCo camera along -z with y up (rotate 180 deg about
-    x). MuJoCo renders a pinhole camera, with no lens distortion. Neither ROS simulator publishes images, so a policy
-    fed over ROS needs an image publisher.
+    x). MuJoCo renders a pinhole camera, with no lens distortion.
+- The real cameras, from the vendor's developer docs (https://www.dexteleop.com/docs/teleavatar-2, in Chinese; it
+  also defines the robot's whole ROS 2 interface: arms in joint or end-effector mode, grippers, chassis, lift, and
+  the software joint limits in §4.13). The model has one pinhole camera per spot, so its images differ from real ones
+  (no fisheye distortion, no stereo pair, other sizes); the READMEs flag this.
+  - Three stereo pairs: the head (two cameras) and each wrist (one stereo module). Not delivered over ROS: the robot
+    pushes one stitched RTP/H.265 stream (UDP 8890, payload type 96, about 45 fps), which the vendor's Python class
+    `RTPH265VideoInterface` (`rtp_video_interface.py`) decodes (§5.1, 5.2). `get_observation()["images"]` holds
+    `head_left_eye`, `head_right_eye` (960 x 960), `left_wrist_left_eye`, `left_wrist_right_eye`,
+    `right_wrist_left_eye`, `right_wrist_right_eye` (400 x 640, height x width) and `head_camera` (the stitched
+    2720 x 1280 frame). A simulated camera feed should mimic that class rather than publish ROS images.
+  - Calibration (§5.5, appendix A): OpenCV fisheye model, intrinsics fx, fy, cx, cy per eye (KL, KR), stereo
+    extrinsics R | T (mm) and rectification matrices. The head-eye and ee-to-wrist-camera transforms are calibrated
+    for each robot, and the docs give the format, not the values.
 
 ## Verified
 
