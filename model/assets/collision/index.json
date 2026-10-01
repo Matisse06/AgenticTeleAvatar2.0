@@ -1,0 +1,305 @@
+{
+ "params": {
+  "target_faces": 40000,
+  "threshold": 0.05,
+  "max_convex_hull": 16,
+  "max_ch_vertex": 128,
+  "resolution": 2000,
+  "seed": 0,
+  "max_convex_hull_for": {
+   "base_link": 32,
+   "lg-base_link": 32,
+   "rg-base_link": 32
+  },
+  "single_hull_above": 0.85
+ },
+ "meshes": {
+  "armL1_link": {
+   "pieces": 1,
+   "faces_in": 243308,
+   "pieces_volume_cm3": 2907.91,
+   "split_volume_cm3": 2813.67,
+   "hull_volume_cm3": 2907.91
+  },
+  "armL2_link": {
+   "pieces": 16,
+   "faces_in": 30424,
+   "pieces_volume_cm3": 735.74,
+   "split_volume_cm3": 735.74,
+   "hull_volume_cm3": 1206.78
+  },
+  "armL3_link": {
+   "pieces": 1,
+   "faces_in": 222652,
+   "pieces_volume_cm3": 2432.43,
+   "split_volume_cm3": 2175.29,
+   "hull_volume_cm3": 2432.43
+  },
+  "armL4_link": {
+   "pieces": 16,
+   "faces_in": 35698,
+   "pieces_volume_cm3": 374.25,
+   "split_volume_cm3": 374.25,
+   "hull_volume_cm3": 606.79
+  },
+  "armL5_link": {
+   "pieces": 1,
+   "faces_in": 244100,
+   "pieces_volume_cm3": 1648.4,
+   "split_volume_cm3": 1564.18,
+   "hull_volume_cm3": 1648.4
+  },
+  "armL6_link": {
+   "pieces": 1,
+   "faces_in": 147692,
+   "pieces_volume_cm3": 269.18,
+   "split_volume_cm3": 231.01,
+   "hull_volume_cm3": 269.18
+  },
+  "armR1_link": {
+   "pieces": 1,
+   "faces_in": 245078,
+   "pieces_volume_cm3": 2908.14,
+   "split_volume_cm3": 2440.31,
+   "hull_volume_cm3": 2908.14
+  },
+  "armR2_link": {
+   "pieces": 16,
+   "faces_in": 30456,
+   "pieces_volume_cm3": 738.14,
+   "split_volume_cm3": 738.14,
+   "hull_volume_cm3": 1206.84
+  },
+  "armR3_link": {
+   "pieces": 1,
+   "faces_in": 222654,
+   "pieces_volume_cm3": 2432.42,
+   "split_volume_cm3": 2134.14,
+   "hull_volume_cm3": 2432.42
+  },
+  "armR4_link": {
+   "pieces": 16,
+   "faces_in": 35584,
+   "pieces_volume_cm3": 360.82,
+   "split_volume_cm3": 360.82,
+   "hull_volume_cm3": 608.0
+  },
+  "armR5_link": {
+   "pieces": 1,
+   "faces_in": 244208,
+   "pieces_volume_cm3": 1650.32,
+   "split_volume_cm3": 1450.21,
+   "hull_volume_cm3": 1650.32
+  },
+  "armR6_link": {
+   "pieces": 1,
+   "faces_in": 150034,
+   "pieces_volume_cm3": 277.78,
+   "split_volume_cm3": 235.53,
+   "hull_volume_cm3": 277.78
+  },
+  "base_link": {
+   "pieces": 32,
+   "faces_in": 472300,
+   "pieces_volume_cm3": 66007.92,
+   "split_volume_cm3": 66007.92,
+   "hull_volume_cm3": 175595.23
+  },
+  "body_link": {
+   "pieces": 1,
+   "faces_in": 198661,
+   "pieces_volume_cm3": 29141.54,
+   "split_volume_cm3": 33551.8,
+   "hull_volume_cm3": 29141.54
+  },
+  "eye_Link": {
+   "pieces": 1,
+   "faces_in": 265194,
+   "pieces_volume_cm3": 65.45,
+   "split_volume_cm3": 59.47,
+   "hull_volume_cm3": 65.45
+  },
+  "lg-base_link": {
+   "pieces": 32,
+   "faces_in": 240320,
+   "pieces_volume_cm3": 176.34,
+   "split_volume_cm3": 176.34,
+   "hull_volume_cm3": 574.76
+  },
+  "lg-link1": {
+   "pieces": 16,
+   "faces_in": 7218,
+   "pieces_volume_cm3": 7.04,
+   "split_volume_cm3": 7.04,
+   "hull_volume_cm3": 13.19
+  },
+  "lg-link10": {
+   "pieces": 1,
+   "faces_in": 5116,
+   "pieces_volume_cm3": 3.78,
+   "split_volume_cm3": 3.6,
+   "hull_volume_cm3": 3.78
+  },
+  "lg-link2": {
+   "pieces": 16,
+   "faces_in": 944,
+   "pieces_volume_cm3": 3.8,
+   "split_volume_cm3": 3.8,
+   "hull_volume_cm3": 8.3
+  },
+  "lg-link3": {
+   "pieces": 1,
+   "faces_in": 12092,
+   "pieces_volume_cm3": 27.77,
+   "split_volume_cm3": 24.57,
+   "hull_volume_cm3": 27.77
+  },
+  "lg-link4": {
+   "pieces": 8,
+   "faces_in": 10908,
+   "pieces_volume_cm3": 5.09,
+   "split_volume_cm3": 5.09,
+   "hull_volume_cm3": 10.83
+  },
+  "lg-link5": {
+   "pieces": 14,
+   "faces_in": 856,
+   "pieces_volume_cm3": 3.83,
+   "split_volume_cm3": 3.83,
+   "hull_volume_cm3": 7.94
+  },
+  "lg-link6": {
+   "pieces": 1,
+   "faces_in": 12092,
+   "pieces_volume_cm3": 27.77,
+   "split_volume_cm3": 24.59,
+   "hull_volume_cm3": 27.77
+  },
+  "lg-link7": {
+   "pieces": 8,
+   "faces_in": 10908,
+   "pieces_volume_cm3": 4.92,
+   "split_volume_cm3": 4.92,
+   "hull_volume_cm3": 10.82
+  },
+  "lg-link8": {
+   "pieces": 1,
+   "faces_in": 19578,
+   "pieces_volume_cm3": 55.79,
+   "split_volume_cm3": 50.42,
+   "hull_volume_cm3": 55.79
+  },
+  "lg-link9": {
+   "pieces": 1,
+   "faces_in": 5020,
+   "pieces_volume_cm3": 2.56,
+   "split_volume_cm3": 3.0,
+   "hull_volume_cm3": 2.56
+  },
+  "lift_carriage_link": {
+   "pieces": 16,
+   "faces_in": 10282,
+   "pieces_volume_cm3": 1084.46,
+   "split_volume_cm3": 1084.46,
+   "hull_volume_cm3": 2177.03
+  },
+  "rg-base_link": {
+   "pieces": 32,
+   "faces_in": 240320,
+   "pieces_volume_cm3": 177.0,
+   "split_volume_cm3": 177.0,
+   "hull_volume_cm3": 570.94
+  },
+  "rg-link1": {
+   "pieces": 16,
+   "faces_in": 7218,
+   "pieces_volume_cm3": 7.04,
+   "split_volume_cm3": 7.04,
+   "hull_volume_cm3": 13.19
+  },
+  "rg-link10": {
+   "pieces": 1,
+   "faces_in": 5116,
+   "pieces_volume_cm3": 3.78,
+   "split_volume_cm3": 3.6,
+   "hull_volume_cm3": 3.78
+  },
+  "rg-link2": {
+   "pieces": 16,
+   "faces_in": 944,
+   "pieces_volume_cm3": 3.8,
+   "split_volume_cm3": 3.8,
+   "hull_volume_cm3": 8.3
+  },
+  "rg-link3": {
+   "pieces": 1,
+   "faces_in": 12092,
+   "pieces_volume_cm3": 27.77,
+   "split_volume_cm3": 24.57,
+   "hull_volume_cm3": 27.77
+  },
+  "rg-link4": {
+   "pieces": 8,
+   "faces_in": 10908,
+   "pieces_volume_cm3": 5.09,
+   "split_volume_cm3": 5.09,
+   "hull_volume_cm3": 10.83
+  },
+  "rg-link5": {
+   "pieces": 14,
+   "faces_in": 856,
+   "pieces_volume_cm3": 3.83,
+   "split_volume_cm3": 3.83,
+   "hull_volume_cm3": 7.94
+  },
+  "rg-link6": {
+   "pieces": 1,
+   "faces_in": 12092,
+   "pieces_volume_cm3": 27.77,
+   "split_volume_cm3": 24.59,
+   "hull_volume_cm3": 27.77
+  },
+  "rg-link7": {
+   "pieces": 8,
+   "faces_in": 10908,
+   "pieces_volume_cm3": 4.92,
+   "split_volume_cm3": 4.92,
+   "hull_volume_cm3": 10.82
+  },
+  "rg-link8": {
+   "pieces": 1,
+   "faces_in": 19578,
+   "pieces_volume_cm3": 55.79,
+   "split_volume_cm3": 50.42,
+   "hull_volume_cm3": 55.79
+  },
+  "rg-link9": {
+   "pieces": 1,
+   "faces_in": 5020,
+   "pieces_volume_cm3": 2.56,
+   "split_volume_cm3": 3.0,
+   "hull_volume_cm3": 2.56
+  },
+  "wheel1_wheel_link": {
+   "pieces": 1,
+   "faces_in": 371418,
+   "pieces_volume_cm3": 1372.16,
+   "split_volume_cm3": 1586.91,
+   "hull_volume_cm3": 1372.16
+  },
+  "wheel2_wheel_link": {
+   "pieces": 1,
+   "faces_in": 371418,
+   "pieces_volume_cm3": 1372.16,
+   "split_volume_cm3": 1524.76,
+   "hull_volume_cm3": 1372.16
+  },
+  "wheel3_wheel_link": {
+   "pieces": 1,
+   "faces_in": 371418,
+   "pieces_volume_cm3": 1372.16,
+   "split_volume_cm3": 1459.34,
+   "hull_volume_cm3": 1372.16
+  }
+ }
+}

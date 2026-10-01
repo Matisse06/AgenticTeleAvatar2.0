@@ -1,4 +1,0 @@
-[INFO] [1790794617.388773605] [teleavatar_mujoco_sim]: MuJoCo dual-arm simulator ready: /n/home00/mvanschalkwijk/TeleAvatar2.0/mujoco/scene.xml; state=PAUSE
-[INFO] [1790794619.762496212] [teleavatar_mujoco_sim]: FSM PAUSE -> SLOW_START
-[INFO] [1790794620.174230031] [teleavatar_mujoco_sim]: FSM SLOW_START -> READY
-[INFO] [1790794628.910839905] [teleavatar_mujoco_sim]: FSM READY -> PAUSE

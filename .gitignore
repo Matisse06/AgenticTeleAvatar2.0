@@ -54,6 +54,9 @@ install/
 log/
 .colcon/
 
+# --- Local results: renders, videos and check outputs (the scripts regenerate them) ---
+/outputs/
+
 # --- Logs / runtime ---
 *.log
 logs/
@@ -71,10 +74,26 @@ wandb/
 
 # --- MuJoCo / robotics artifacts ---
 MUJOCO_LOG.TXT
-/mujoco.zip
 *.mjb
 *.urdf.bak
 *.xml.bak
 recordings/
 screenshots/
 videos/
+
+# --- Robot files from the documentation website: download them, see README.md ---
+# https://www.dexteleop.com/docs/teleavatar-2/resources/urdf (GitHub refuses files over 100 MB)
+*.7z
+/model/vendor/visual/
+/model/vendor/collision/
+# Downloads left in the repository root, or an archive unpacked there by hand
+/teleavatar_urdf_*.urdf
+/urdf_20260825_textured/
+/visual/
+/collision/
+/urdf/
+/manifest.json
+/各关节阻尼参数.docx
+# --- Generated from them (model/convert.py, model/build_visual_lite.py) ---
+/model/assets/textures_*/
+/model/assets/visual_*/

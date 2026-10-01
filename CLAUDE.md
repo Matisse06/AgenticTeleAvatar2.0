@@ -1,21 +1,184 @@
 # TeleAvatar 2.0 MuJoCo simulation
 
-MuJoCo model and ROS 2 simulator of the lab's TeleAvatar 2.0 dual-arm robot, as delivered in `mujoco/` (read
-`mujoco/README.md` first), set up to run on FASRC's Cannon cluster. **CPU only: nothing here needs a GPU**, so never
-request one for it (FASRC's Job Defense Shield flags idle GPUs; see ~/pi05_maniskill/CLAUDE.md). The goal is testing,
-and later training, robot policies, including ones that take camera images: keep rendering faithful (below).
+MuJoCo models and ROS 2 simulators of the lab's TeleAvatar 2.0 robot, set up to run on FASRC's Cannon cluster:
+
+- `model/`: **the model to use**. It is the whole robot: an omni-wheel base that drives on the floor, a 0.74 m lift
+  carrying the torso, a head camera, two 7-joint arms, and parallel grippers with wrist cameras. Our converter builds
+  it from the vendor's newest URDF (`teleavatar_urdf_20260928`) and textured meshes. Read `model/README.md` first.
+- `mujoco/`: the vendor's original dual-arm model and simulator (fixed torso, 14 arm joints, rigid grippers), kept as
+  delivered. Read `mujoco/README.md`.
+
+**Physics and every check run on the CPU**, so never request a GPU for them (FASRC's Job Defense Shield flags idle
+GPUs; see ~/pi05_maniskill/CLAUDE.md). The exception is rendering the new model at scale: a frame takes 1.2 s on 4
+CPU threads and 2 ms on a GPU (table below). Generating image datasets is GPU work, in a job that keeps the GPU busy.
+The goal is testing, and later training, robot policies, including ones that take camera images, so keep rendering
+faithful (below).
 
 ## Layout
 
-- `mujoco/`: the vendor folder, kept as delivered (commit `3baa2b9` is the original; `mujoco.zip` was a byte-identical copy
-  and is no longer tracked). The README steps and the unit tests rewrite `robot.xml`, but its content comes out
-  identical. Put our own code outside this folder.
+- `model/`: the new model and our code for it.
+  - `vendor/`: the vendor's files, unchanged: the URDFs (`urdf/`; `teleavatar_urdf_20260928.urdf` is the one used),
+    `README.md`, `manifest.json`, `各关节阻尼参数.docx` ("damping parameters of each joint") and `SHA256SUMS` of
+    the meshes. The meshes themselves (`vendor/visual/`, `vendor/collision/`, 242 files, 590 MB) are gitignored:
+    `setup/unpack_assets.py` unpacks them from the vendor's archive `urdf_20260825_textured9.21.7z` (125 MB; not in
+    git, see `README.md`), downloaded from https://www.dexteleop.com/docs/teleavatar-2/resources/urdf.
+    `.gitignore` also covers those downloads left in the repository root, or an archive unpacked there by hand. The
+    old model's meshes in `mujoco/` stay in git: they are not on that page.
+  - `convert.py` writes `robot.xml` (tracked) and `assets/textures_1024/` (generated). `scene.xml` adds the floor,
+    lights and three cameras.
+  - `assets/collision/` (tracked, 6 MB): convex collision pieces made by `build_collision.py`.
+    `build_visual_lite.py` makes optional lighter visual meshes (`assets/visual_<N>/`, gitignored).
+  - `mobile_base.py`: drives the base in the robot's frame and rolls its wheels. `play.py`: the interactive viewer.
+  - `ros2_sim_node.py`, `run_sim.sh`, `smoke_test.py`: the ROS 2 simulator. `tests/test_model.py`: 19 unit tests.
+- `mujoco/`: the vendor folder, kept as delivered (commit `3baa2b9` is the original; `mujoco.zip` was a byte-identical
+  copy and is no longer tracked). The README steps and the unit tests rewrite `robot.xml`, but its content comes out
+  identical. Put our own code outside this folder. `model/` imports two vendor files (the helpers in
+  `ros2_sim_node.py`, and `convert_urdf.py`'s `HOME` in a test) with `sys.dont_write_bytecode`. Without it,
+  running outside `sim.sh` overwrote the vendor's shipped `.pyc` files on 2026-10-01; they were restored from
+  `3baa2b9`.
 - `sim.sh`: runs a command inside the container (ROS 2 Humble + the MuJoCo venv). With no arguments it opens a shell.
 - `env.sh`: paths and the pinned image. `container_rc.sh` is sourced inside the container by `sim.sh`.
-- `setup/setup_env.sbatch`: one-time setup (pulls the image, builds the venv). `setup/requirements.lock`: exact versions.
-- `setup/verify.sh`: every README check plus a render. `setup/viewer_check.sh`: the live viewer under a virtual display.
-- `scripts/render_video.py`: offscreen MP4/PNG renders on the CPU.
-- `outputs/`: renders and logs (`outputs/verify/` is rewritten by the checks). `logs/`: Slurm logs.
+- `setup/setup_env.sbatch`: one-time setup (pulls the image, builds the venv). `setup/requirements.lock`: exact
+  versions. `setup/unpack_assets.py`: the new model's meshes.
+- `setup/verify.sh`: every check, vendor model then new model, plus renders. `setup/viewer_check.sh`: the live viewer
+  under a virtual display.
+- `scripts/render_video.py`: offscreen MP4/PNG renders (new model by default, `--model mujoco/scene.xml` for the
+  vendor's).
+- `outputs/` (renders, videos, check results; `outputs/verify/` is rewritten by the checks) and `logs/` (Slurm logs)
+  are local: gitignored, regenerated by the scripts.
+
+## The new model (`model/`)
+
+### Vendor files and which URDF to use
+
+The documentation page (https://www.dexteleop.com/docs/teleavatar-2/resources/urdf) had these on 2026-10-01:
+- three archives, `urdf_20260825_textured9.14 / 9.17 / 9.21.7z`. Their 242 mesh and texture files are byte-identical;
+  only the URDF and the damping document inside differ, and 9.17 equals 9.21. Keep 9.21.
+- two standalone URDFs, 0922 and 0928.
+
+They form one lineage:
+1. the archive URDF 9.14
+2. 9.17 adds the frames `virtual_base`, `left/right_base_virtual` and `left/right_ee`
+3. 0922: exact pi/2 angles; a 0.17 deg / 0.1 mm misalignment of left joint 5 removed; per-arm
+   `left/right_shoulder_base` frames; hand frames moved after joint 7
+4. 0928 flips seven arm axes (left 2, 3, 4, 6, 7 and right 2, 4) and negates their ranges to match
+
+**Only 0928's joint directions match the vendor model, and so the ROS API.** At the zero pose (arms straight out
+sideways), all 14 axes point the same way in both files. The vendor home pose lands each wrist within 2.3 cm and
+0.5 deg of the vendor model's, which matches the slightly different link lengths. The archive's own URDF and 0922 give
+the wrong sign on those seven joints. A unit test guards this, so `l_jointN` / `r_jointN` (API) simply map to
+`armLN_joint` / `armRN_joint`.
+
+### What is in it (48 URDF links, 85.8 kg)
+
+- **Base**: `base_link` (chassis and lift column, 51.7 kg) drives on the floor, its wheel axles 89.7 mm up (the
+  wheels are 179.4 mm across). ASSUMED: it moves kinematically, so it neither slips nor tips:
+  - World-frame joints carry it: `base_x` and `base_y` (slides) and `base_yaw` (a hinge about `base_link`'s origin).
+    They come first in `qpos`; the first 17 actuators keep their order.
+  - The actuators of the same names take world-frame velocity commands, up to 1 m/s and 1.5 rad/s, and hold the
+    reached pose at 0. They are integrated-velocity servos, critically damped at 10 Hz, so both arms jumping 0.4 rad
+    move the base 0.34 mm and 0.23 deg. Their force limits (360 N, 209 N m) are what the wheel motors' 20 N m (URDF)
+    can push along the wheels' rolling directions.
+  - The three omni wheels (the URDF's continuous joints, 120 deg apart; the front pair 0.290 m from the base origin,
+    the rear one 0.357 m) are unactuated hinges that never touch the floor. `MobileBase.roll_wheels` spins them at the
+    speed of rolling without slip; a test checks that against MuJoCo's own kinematics. Code that steps the model
+    without it (`python -m mujoco.viewer`, the vendor's `play.py`) moves the base but leaves the wheels still.
+  - `MobileBase.command` takes commands in the robot's frame and ramps them at 1 m/s^2 and 2 rad/s^2 (NOMINAL).
+  - The vendor API has no chassis (`enable_chassis: false`), so the ROS simulator keeps the base where it starts.
+- **Lift**: `lift_carriage_joint` slides from 0 (top) to 0.74 m. **Positive values lower the torso.** It is rated
+  1352 N and 0.5 m/s, and carries `body_link` (torso), `eye_Link` (head camera) and both arms. Home is 0.136 m
+  (NOMINAL), which puts the shoulder joints 1.27 m above the floor as in the vendor model.
+- **Arms**: torque limits 40, 40, 20, 20, 6, 5 and 6 N m for joints 1 to 7. The speed limits (17.5 to 37.9 rad/s) are
+  not modelled.
+- **Grippers**: parallel jaws on parallelogram linkages, per side:
+  - the input crank `lg_joint1` (0..1 rad; the actuated joint according to `manifest.json` and the damping document)
+  - a finger linkage driven by `lg_joint2` (-0.98..0), which 7 joints mimic (equality constraints)
+
+  The URDF leaves the input and the linkage independent. The ASSUMED coupling is finger angle = -0.98 x input; the
+  ranges and the CAD pose (both at 0) fit it. With it, **input 0 is closed (fingertips touch) and 1 is open**, and
+  renders show the fingers moving parallel and symmetric. Home is open; effort is 2 N m.
+- **Reference frames**: the URDF's massless links are sites:
+  - `virtual_base`: at the head camera's position, x forward
+  - `left/right_shoulder_base`: each shoulder's rotation centre (on the first three joint axes, checked to 0.00 mm)
+  - `left/right_base_virtual`: aliases of the shoulder bases
+  - `left_ee` / `right_ee`: at the last wrist joint, turning with joint 7
+
+  A unit test checks the sites against an independent URDF forward kinematics.
+- **Cameras**:
+  - `head` on `eye_Link`: an 86 x 25 x 40 mm box whose frame is a ROS optical frame at its front face, looking
+    forward and 26 deg down.
+  - `left_wrist` / `right_wrist` on `lg_link8` / `rg_link8`: 71 x 25 x 42 mm blocks fixed to the gripper bases,
+    tilted 20 deg toward the fingers, with two lenses on the +z face (the back has a tripod plate and a USB port). The
+    cameras sit at the lens face's centre.
+
+  All three fields of view are 58 deg (NOMINAL). The wrist image orientation is ASSUMED: the fingers appear at the
+  image's lower left and right.
+
+| joint (L / R) | left range | home | right range | home | damping (N m s/rad) | friction (N m) |
+|---|---|---|---|---|---|---|
+| 1 | -2.967 .. 2.967 | 0.41 | -2.967 .. 2.967 | -0.50 | 0.165 | 0.562 |
+| 2 | -1.70 .. 1.70 | 1.16 | -1.70 .. 1.70 | -0.92 | 0.099 | 0.751 |
+| 3 | -1.4835 .. 3.1416 | -0.47 | -3.1416 .. 1.4835 | 0.52 | 0.082 | 0.316 |
+| 4 | -0.0253 .. 2.557 | 0.90 | -2.557 .. 0.0253 | -1.28 | 0 (measured negative) | 0.379 |
+| 5 | -2.7925 .. 2.7925 | 0.23 | -2.7925 .. 2.7925 | 0.32 | 0.018 | 0.149 |
+| 6 | -1.2865 .. 1.2865 | -0.15 | -1.2865 .. 1.2865 | 0.55 | 0.026 | 0.117 |
+| 7 | -0.7435 .. 0.7435 | 0.60 | -0.7435 .. 0.7435 | -0.52 | 0.015 | 0.121 |
+
+### Where the simulation values come from
+
+- **From the vendor**:
+  - kinematics, masses, inertias, ranges and torque limits (URDF)
+  - arm damping (viscous) and friction (Coulomb, as MuJoCo `frictionloss`), measured on the robot (docx table 2;
+    `--damping empirical` uses the vendor's table 1 instead)
+  - the gripper input's damping 0.12 and friction 0.08 (table 1)
+- **NOMINAL** (the vendor publishes none):
+  - position gains: arms kp 120 / kv 8 (the vendor model's), lift kp 20000 / kv 2000 / damping 100, gripper
+    kp 4 / kv 0.2, base kp 340000 / kv 10800 (yaw 17000 / 545)
+  - base command limits 1 m/s and 1.5 rad/s (the wheel motors' 18.84 rad/s would allow 1.7 m/s and 4.7 rad/s), the
+    ramp in `mobile_base.py`, and the base's travel of 4.5 m either way, which keeps it on `scene.xml`'s floor
+  - armature: arms 0.02 (the vendor model's), linkage joints 0.0002
+  - camera fovy 58 deg
+  - timestep 2 ms with `implicitfast`; elliptic friction cones with `impratio` 10 (MuJoCo's advice for grasping)
+- **ASSUMED** (each is a constant in `convert.py`; flags where noted):
+  - gravity compensation in the joint controllers, via `gravcomp` and `actuatorgravcomp`, so it counts against the
+    torque limits. `--no-gravcomp` turns it off; the arms then sag up to 0.086 rad at home (the vendor model: 0.067).
+  - the gripper coupling, and the gripper's home (open)
+  - the wrist camera orientation
+  - the lift home (`--lift-home`)
+  - the kinematic base (see above)
+- **Collision**: the vendor's collision STLs are the raw CAD surfaces: 4.6M triangles, mostly not closed, the same
+  geometry as the visual meshes. MuJoCo collides each mesh as its convex hull and reads at most 200k faces per STL (the
+  chassis has 472k). So `build_collision.py` splits them with CoACD: decimated to 40k faces, threshold 0.05, at most 16
+  pieces (32 for the chassis and the gripper bases). A part keeps a single hull when the pieces fill at least 85% of
+  it, and left and right decide together, which gives 323 pieces. Collision geoms are in group 3 (hidden), visuals in
+  group 2 (no contacts), so there are no grey copies.
+- **66 contact exclusions**: the three wheels against the floor (the base joints carry the robot), and these, from
+  sweeping the lift and 3000 random poses:
+  - the carriage, which runs inside the column
+  - wrist link 5, which sits inside the gripper housing
+  - within each gripper, every pair except finger A against finger B
+  - the elbow (arm link 3 against 5): their hulls touch from 140 deg of joint 4, while the CAD meshes (FCL) keep
+    11.6 mm of clearance there and touch only at the 146.5 deg hard stop
+
+  The remaining self-collisions (arms against the torso or column, forearm against upper arm) are real and kept.
+- **Checks** (2026-10-01, this workstation):
+  - no contacts at home, and the arms hold home exactly (friction plus gravity compensation)
+  - the gripper tracks 0, 0.5 and 1, with the constraints holding to 1e-7
+  - it grasps a 4 cm box and keeps it while the lift rises 10 cm (the box rises 96 of 100 mm)
+  - the base drives 0.6 m ahead, turns 1 rad and moves 0.4 m sideways, each to within 1 mm, with no contacts. The
+    arms then rest within joint friction's dead band (up to 0.0063 rad for joint 2: 0.751 N m against kp 120).
+  - physics runs 38x real time on one core (`mj_step` alone; the fixed-base build ran 40x), and 22x with the Python
+    `MobileBase` calls every step
+
+### Open questions for the vendor (the simulation runs without the answers)
+
+- The cameras' intrinsics (resolution, fx, fy, cx, cy), and whether the wrist images are upright as assumed.
+- The lift height used in practice, and the sign convention of the real lift reading.
+- How the gripper input drives the finger linkage (the -0.98 linear coupling is ours).
+- Joint 3's range: relative to the vendor model, it is mirrored for both arms (left -2.6..1.3 became -1.48..3.14, right
+  -1.3..2.6 became -3.14..1.48) while the axis is unchanged. One of the two files is wrong; the simulation uses 0928's.
+- Armature (rotor inertia), the joint controllers' gains, and whether they compensate gravity.
+- The base: its API (topics, frames, odometry), its speed and acceleration limits, and how stiffly it holds still.
 
 ## Environment
 
@@ -23,16 +186,36 @@ and later training, robot policies, including ones that take camera images: keep
   OpenGL/EGL with the llvmpipe CPU renderer), pinned by digest in `env.sh`, at
   `$HL/containers/ros2-humble-desktop_2026-09-10.sif` (1.0 GB). That is the stack the vendor scripts target:
   `run_sim.sh` sources `/opt/ros/humble/setup.bash`, and the shipped `.pyc` files are CPython 3.10.
-- venv `$HL/envs/teleavatar_ros2`: mujoco 3.14.0, numpy 1.26.4 (must stay below 2: ROS Humble's compiled message
-  modules are built against numpy 1.x), imageio 2.38 with a bundled ffmpeg 7.0.2. It is built with the container's
-  Python, so it only works inside the container (through `sim.sh`). Adding a package: `./sim.sh uv pip install <pkg>`.
-- The model needs MuJoCo 3 or newer: it uses the `kv` actuator attribute, which MuJoCo 2.3.7 (the openpi venv) rejects.
-- `sim.sh` passes `--cleanenv`, so host settings (modules, `PYTHONPATH`, `LD_PRELOAD`, `VK_ICD_FILENAMES`) stay out of
-  the container. It forces `ROS_LOCALHOST_ONLY=1`, defaults to ROS domain 90 (`SIM_ROS_DOMAIN_ID` overrides it),
-  refuses domain 29 (the production robot), and passes the node's timezone (the image defaults to UTC). Python
-  bytecode goes to `~/.cache/teleavatar_pycache`, so the vendor's shipped `.pyc` files are never loaded. (They were
-  checked on 2026-09-29: five match their sources, and `smoke_test`'s is stale, so Python would recompile it anyway.
-  They are now untracked and gitignored; commit `3baa2b9` still has them.)
+- venv `$HL/envs/teleavatar_ros2`:
+  - mujoco 3.14.0
+  - numpy 1.26.4 (must stay below 2: ROS Humble's compiled message modules are built against numpy 1.x)
+  - pillow 12.3.0 (the new model's converter needs it)
+  - imageio 2.38 with a bundled ffmpeg 7.0.2
+
+  It is built with the container's Python, so it only works inside the container (through `sim.sh`). Adding a
+  package: `./sim.sh uv pip install <pkg>`. The new model's unpack step also needs `py7zr`. The tools that regenerate
+  derived assets (`coacd`, `trimesh`, `fast-simplification`; `pymeshlab` for the lighter visual meshes) are not needed
+  on the cluster: the collision pieces are tracked.
+- The models need MuJoCo 3 or newer: they use the `kv` actuator attribute, which MuJoCo 2.3.7 (the openpi venv)
+  rejects. The new model also uses the joint attributes `actuatorgravcomp` and `actuatorfrcrange`, added in later
+  MuJoCo 3 releases; it is tested on 3.14.0 only.
+- `sim.sh` passes `--cleanenv`, so host settings (modules, `PYTHONPATH`, `LD_PRELOAD`, `VK_ICD_FILENAMES`) stay out
+  of the container. It also:
+  - forces `ROS_LOCALHOST_ONLY=1`, defaults to ROS domain 90 (`SIM_ROS_DOMAIN_ID` overrides it) and refuses domain 29
+    (the production robot)
+  - passes the node's timezone (the image defaults to UTC)
+  - sends Python bytecode to `~/.cache/teleavatar_pycache`, so the vendor's shipped `.pyc` files are never loaded.
+    They were checked on 2026-09-29: five match their sources, and `smoke_test`'s is stale, so Python would recompile
+    it anyway. They are untracked and gitignored; commit `3baa2b9` still has them.
+
+  `model/run_sim.sh` also sets `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, the Jazzy-and-later name.
+- Memory: the new model takes 831 MB per loaded copy: 474 MB of bounding-volume hierarchies over its 3.5M visual
+  triangles, and 132 MB of textures. The unit tests hold about three copies and the smoke test two processes, which
+  fits `--mem 8G`. The lighter visual meshes halve it.
+- Disk: unpacking puts 590 MB in `~/TeleAvatar2.0/model/vendor/`, in the backed-up home directory. That goes against
+  this project's habit of keeping large data on `$HL`. To avoid it, make `model/vendor/visual` and
+  `model/vendor/collision` symlinks to folders under `$HL` before unpacking; the unpack script then fills those, and
+  `robot.xml` does not change (its paths are kept lexical; tested).
 - Nothing on the cluster provided this before: the nodes have no ROS 2, and FASRC's shared SEAS containers
   (`/n/singularity_images/SEAS`) are ROS 1 Melodic and a 2020 mujoco-py image.
 
@@ -41,80 +224,143 @@ and later training, robot policies, including ones that take camera images: keep
 Run on a compute node, not the login node (checks that take a few seconds are fine there). On 2026-09-29 the `test`
 partition was down for maintenance until 2026-10-02; `shared` works.
 
-- Check everything (about 3 minutes, most of it the video render):
-  `srun -p shared -c 4 --mem 8G -t 20 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh`
-  and the live viewer: `srun -p shared -c 4 --mem 8G -t 15 bash ~/TeleAvatar2.0/setup/viewer_check.sh`
+- **New model, once per machine (fresh checkout)**:
+  1. `./sim.sh uv pip install py7zr`
+  2. copy the archive (for example to `$HL`)
+  3. `./sim.sh python3 setup/unpack_assets.py <archive>`
+  4. `./sim.sh python3 model/convert.py`, which generates the textures. Until this has run, `scene.xml` does not load.
+- Check everything (vendor model, then the new one; roughly 10 minutes, most of it the new model's video):
+  `srun -p shared -c 4 --mem 8G -t 30 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh`. The live viewer:
+  `srun -p shared -c 4 --mem 8G -t 15 bash ~/TeleAvatar2.0/setup/viewer_check.sh`.
 - Interactive work, with terminals on the same node (ROS discovery is localhost only):
-  `salloc -p shared -c 4 --mem 8G -t 2:00:00`, then in more terminals `srun --jobid <jobid> --overlap --pty bash`.
-  In each terminal: `cd ~/TeleAvatar2.0/mujoco && ~/TeleAvatar2.0/sim.sh`, then use the README commands as written.
-- Videos to open in VS Code: `./sim.sh python3 scripts/render_video.py --output outputs/wave.mp4`
-  (`--motion hold|wave`, `--duration`, `--camera`; a `.png` output renders one still of the home keyframe).
-  An 8 s clip at 960x720 takes about 80 s on 4 cores.
-- Live viewer (`play.py`, `run_sim.sh --viewer`): VS Code has no display, so use an Open OnDemand Remote Desktop
-  (https://rcood.rc.fas.harvard.edu, Interactive Apps, Remote Desktop, CPU partition, no GPU) and run the same
-  `sim.sh` commands from its terminal. Software rendered, it runs at about 1.7 fps and takes 10 to 20 s to show the
-  robot. Known issue: stopped from code (the end of `play.py --duration`, Ctrl-C of `run_sim.sh --viewer`), it usually
-  exits with a segfault (139). MuJoCo's passive viewer does not wait for its render thread, and `glfw.terminate()` runs
-  at exit while a slow frame is still being drawn. It happens after the scripts' own cleanup, so it is harmless.
+  `salloc -p shared -c 4 --mem 8G -t 2:00:00`, then in more terminals `srun --jobid <jobid> --overlap --pty bash`. In
+  each terminal, `cd ~/TeleAvatar2.0 && ./sim.sh`, then:
+  - new model: `./model/run_sim.sh` (`--viewer`, `--lift`, `--gripper`), `python3 model/smoke_test.py`, and the
+    vendor's client against it: `python3 mujoco/test_control.py --reordered-names`
+  - vendor model: `cd mujoco` and the README commands as written
+- Videos to open in VS Code: `./sim.sh python3 scripts/render_video.py --output outputs/wave.mp4`. Options:
+  `--motion hold|wave|drive`, `--duration`, `--camera` (also `head`, `left_wrist`, `right_wrist`), `--model
+  mujoco/scene.xml`; a `.png` output renders one still of the home keyframe. On the new model, `wave` also opens and
+  closes the grippers, and `drive` drives the base around a square and back (12 s). An 8 s clip at 960x720 takes
+  about 5 minutes on 4 CPU threads for the new model (about 2 with the lighter visual meshes), about 80 s for the
+  vendor model, and 4 s on a GPU.
+- Live viewer: `python3 model/play.py` (camera insets, keyboard driving, a slider per actuator; its docstring lists
+  the keys) or `./model/run_sim.sh --viewer`. VS Code has no display, so on the cluster use an Open OnDemand Remote
+  Desktop (https://rcood.rc.fas.harvard.edu, Interactive Apps, Remote Desktop, CPU partition, no GPU) and run the
+  same `sim.sh` commands from its terminal.
+  - Speed in software rendering: the vendor model runs at about 1.7 fps and takes 10 to 20 s to show the robot. The
+    new model is about 6x slower (Xvfb test, 2026-10-01); use `--visual-faces 50000` for it, and `play.py
+    --no-cameras`, since each inset is another software render.
+  - Exit crash, fixed in our scripts: MuJoCo's passive viewer runs in a daemon thread, which Python does not wait for
+    at exit, so `glfw.terminate()` (registered with atexit) can run while that thread is still drawing: a segfault
+    (139). `model/play.py` and `model/ros2_sim_node.py` join the thread before exiting and exit with 0 (2026-10-01).
+    The vendor's `mujoco/play.py` does not: it usually ends with 139 when stopped from code (`--duration`), after its
+    own cleanup, so harmlessly. With the new model under Xvfb, one run of it in three never finished (killed after
+    120 s; it printed nothing, so where it stuck is unknown).
 
 ## Rendering and camera images
 
-- Every link is in the model twice: the URDF's `<visual>` and `<collision>` use the same STL file at the same origin,
-  and `convert_urdf.py` makes a visual geom (URDF colour, group 1, never collides) and a collision geom (contacts,
-  MuJoCo's default 0.5 grey, group 0 with the floor). Both are drawn, and the grey copy covers parts of the robot: on
-  the home frame 5% of all pixels differ by up to 127/255 (`outputs/verify/collision_compare.png`).
-  `render_video.py` therefore moves the collision geoms to hidden group 3 for drawing only (contacts use
-  `contype`/`conaffinity`, not the group); `--show-collision` restores the delivered look. The vendor viewer still
-  draws both. The proper fix is two lines in the vendor's `convert_urdf.py`, to send them:
-  `outputs/compare/convert_urdf_collision_group.patch` (tested on a copy on 2026-09-30: the 14 vendor tests pass, the
-  render is pixel-identical to `render_video.py`'s fix, and masses, inertias and 1000 steps of dynamics are
-  bit-identical, so it only changes drawing). Until the vendor applies it, the fix lives only in
-  `render_video.py`: any other code that renders images (camera observations for policies) must apply it too, so put
-  model loading and render settings in one shared helper that all rendering code uses.
-- Shadows stay on by default. `--no-shadows` is for quick previews only; it changes the images, so never use it for
-  policy training or evaluation data. Use identical render settings for training and evaluation.
-- Before/after figures (1600x1200 overview renders made with `render_video.py`) are in `outputs/compare/`. Hiding the
-  collision copies changes 4.8% of the frame (4.5% by more than 10/255). Turning shadows off changes 42% of the frame
-  slightly (16.5% by more than 10/255): the cast shadows plus shading across the floor and robot.
-- CPU rendering (llvmpipe, 4 threads, 960x720, 671k mesh triangles; the base alone is 106k): 578 ms per frame with
-  collision copies and shadows (the viewer), 317 ms with visual meshes and shadows (`render_video.py`), 128 ms
-  without shadows. Fine for checks and videos; generating training images at scale needs GPU rendering (EGL) in a
-  job that keeps the GPU busy.
-- The model has no robot cameras: `scene.xml` only has a fixed `overview` camera. Policies with image inputs need head
-  and wrist cameras that match the real robot's mounts and intrinsics. Checked on MuJoCo 3.14 (2026-09-30):
-  - The head is part of `base_link`, one fixed mesh from the floor (z = -1.27 m) to the top of the head (+0.26 m), so
-    a head camera attaches to `base_link`. Wrist cameras attach to `Link-L7` / `Link-R7`. The model has no head
-    pan/tilt or lift joints.
-  - Cameras can be added at load time without editing vendor files: `spec = mujoco.MjSpec.from_file("scene.xml")`
-    (its `<include>` works), `spec.body("Link-L7").add_camera(name=..., pos=..., quat=...)`, `spec.compile()`.
+- **New model**:
+  - Its visual meshes are textured OBJs (group 2) and its collision pieces are separate (group 3, hidden), so there is
+    nothing to hide.
+  - MuJoCo's classic renderer uses only the colour textures. The material finish comes from the vendor's roughness
+    and metalness maps: their means become `roughness` / `metallic`, and from those `specular` / `shininess` (a
+    heuristic; the MTL files declare none).
+  - Textures are scaled to 1024 by default (`--texture-size`; the vendor's are 2048, the torso's 4096).
+  - `--visual-faces 50000` changes at most 0.94% of a frame by more than 10/255 and 0.12% by more than 40/255 (0 in
+    the wrist cameras). Never mix renders made with and without it in one dataset.
+- **Vendor model**: every link is in the model twice. The URDF's `<visual>` and `<collision>` use the same STL file at
+  the same origin, and `convert_urdf.py` makes a visual geom (URDF colour, group 1, never collides) and a collision
+  geom (contacts, MuJoCo's default 0.5 grey, group 0 with the floor). Both are drawn, and the grey copy covers parts of
+  the robot: on the home frame 5% of all pixels differ by up to 127/255 (`outputs/verify/collision_compare.png`,
+  local).
+  - `render_video.py` therefore moves the collision geoms to hidden group 3 for drawing only (contacts use
+    `contype`/`conaffinity`, not the group); `--show-collision` restores the delivered look (on the new model it
+    draws the convex pieces). The vendor viewer still draws both.
+  - The proper fix is two lines in the vendor's `convert_urdf.py`, to send them. In the loop that writes each geom,
+    after the `if` that gives visual geoms `attrs["group"] = "1"`:
+
+    ```python
+                else:
+                    attrs["group"] = "3"  # collision copies of the visual meshes: not drawn by default
+    ```
+
+    It was tested on a copy on 2026-09-30: the 14 vendor tests pass, the render is pixel-identical to
+    `render_video.py`'s fix, and masses, inertias and 1000 steps of dynamics are bit-identical, so it only changes
+    drawing.
+  - Until the vendor applies it, any other code that renders the vendor model must apply the fix too.
+- Shadows stay on by default. `--no-shadows` is for quick previews only: it changes the images, so never use it for
+  policy training or evaluation data. Use identical render settings for training and evaluation, and put model loading
+  and render settings in one shared helper that all rendering code uses.
+- Offscreen rendering next to a viewer window, on NVIDIA: once the process has a GLX context (the viewer's), no new EGL
+  context can be made current ("Failed to make the EGL context current"), on either GPU. An EGL `mujoco.Renderer`
+  made before the window keeps working, so create renderers first (`model/play.py` does). Tested on this workstation
+  on 2026-10-01; Xvfb hides the problem, because its GLX is Mesa.
+- Before/after figures of the vendor model (1600x1200 overview renders made with `render_video.py`) are in
+  `outputs/compare/` (local). Hiding the collision copies changes 4.8% of the frame (4.5% by more than 10/255). Turning
+  shadows off changes 42% of the frame slightly (16.5% by more than 10/255): the cast shadows plus shading across the
+  floor and robot.
+- Frame times at 960x720 (shadows on / off) and loaded model size, measured on this workstation on 2026-10-01. Its
+  CPU differs from the cluster's: there, the vendor model took 317 / 128 ms.
+
+  | model (drawn triangles) | GPU (RTX 6000 Ada, EGL) | CPU (Mesa llvmpipe, 4 threads) | memory |
+  |---|---|---|---|
+  | vendor (1.34M) | 0.8 / 0.6 ms | 273 / 90 ms | 122 MB |
+  | new (3.52M) | 1.8 / 0.9 ms | 1165 / 372 ms | 831 MB |
+  | new, `--visual-faces 50000` (1.15M) | 0.9 / 0.7 ms | 433 / 133 ms | 395 MB |
+- Camera intrinsics: the new model's cameras use a nominal fovy until the real intrinsics are known. Checked on MuJoCo
+  3.14 (2026-09-30):
   - Real intrinsics are supported: MJCF `resolution` (W H), `focalpixel` (fx fy) and `principalpixel`, plus
     `sensorsize`, which MuJoCo requires whenever focal/principal are set (it refuses to compile otherwise; any size
-    with the image's aspect ratio gives identical images). `MjsCamera` has the same fields. Images are not mirrored:
-    camera +x is image right and camera +y is image up. The principal point sign is the opposite of OpenCV's: for a
-    real camera's cx, cy (from `camera_info`), use `principalpixel = (W/2 - cx, H/2 - cy)`. Test renders showed +100
-    moves the on-axis point to x = 220 and y = 140. The gripper links (`Link-L10/L11`, `Link-R10/R11`) are rigidly
-    fixed to `Link-L7`/`Link-R7`, so a wrist camera there moves with the gripper.
-  - Gotchas: a ROS optical frame looks along +z with y down, a MuJoCo camera looks along -z with y up (rotate 180
-    degrees about x); MuJoCo renders a pinhole camera, with no lens distortion; the vendor ROS simulator publishes
-    no images, so a policy fed over ROS needs an image publisher; each image costs about 0.3 s on the CPU.
+    with the image's aspect ratio gives identical images). `MjsCamera` has the same fields; `CAMERAS` in
+    `model/convert.py` is where they go.
+  - Images are not mirrored: camera +x is image right and camera +y is image up. The principal point sign is the
+    opposite of OpenCV's: for a real camera's cx, cy (from `camera_info`), use `principalpixel = (W/2 - cx, H/2 - cy)`.
+    Test renders showed +100 moves the on-axis point to x = 220 and y = 140.
+  - Cameras can also be added at load time without editing files:
+    `spec = mujoco.MjSpec.from_file("scene.xml")` (its `<include>` works),
+    `spec.body(...).add_camera(name=..., pos=..., quat=...)`, `spec.compile()`. On the vendor model, the head belongs
+    to `base_link` and the wrists are `Link-L7` / `Link-R7`.
+  - Gotchas: a ROS optical frame looks along +z with y down, a MuJoCo camera along -z with y up (rotate 180 deg about
+    x). MuJoCo renders a pinhole camera, with no lens distortion. Neither ROS simulator publishes images, so a policy
+    fed over ROS needs an image publisher.
 
 ## Verified
 
-- 2026-09-29 (CPU node holy7c04111, 4 cores): all README steps pass. `convert_urdf.py` (regenerated `robot.xml`
-  byte-identical), `--check-only`, the 14 unit tests, `smoke_test.py` (all checks), and
+- 2026-09-29 (CPU node holy7c04111, 4 cores): all vendor README steps pass: `convert_urdf.py` (regenerated
+  `robot.xml` byte-identical), `--check-only`, the 14 unit tests, `smoke_test.py` (all checks), and
   `test_control.py --reordered-names` (target reached within 0.064 rad, start restored within 0.070 rad).
 - 2026-09-30 (holy7c04109): `viewer_check.sh` passes. `test_control.py` also passes with `run_sim.sh --viewer` open,
   but with a thin margin (0.097 rad against its 0.10 tolerance), because the slow viewer slows the simulator.
-  `play.py` renders the robot (`outputs/verify/viewer_play.png`).
+  `play.py` renders the robot (`outputs/verify/viewer_play.png`, local).
+- 2026-10-01, the new model, on the lab workstation Woodbury-Lambda-Vector. It runs Ubuntu 22.04 with ROS 2 rolling
+  (not Humble) and 2x RTX 6000 Ada; the test environment was a scratch venv with mujoco 3.14.0, numpy 1.26.4 and
+  pillow 12.3.0, as in `requirements.lock`. Passed, after the base became drivable:
+  - the 19 unit tests, with ROS sourced (none skipped) and ResourceWarnings as errors
+  - `smoke_test.py`
+  - the vendor's `test_control.py --reordered-names` against `model/run_sim.sh`: target within 0.0073 rad and start
+    restored within 0.0075 rad, about 9x tighter than the vendor model, mostly from gravity compensation
+  - `render_video.py` on both models; `--motion drive` brings the base back to its start within 1.3 mm and 0.01 deg
+  - `model/play.py`: on this workstation's display (NVIDIA), the window opens with the camera insets; under Xvfb,
+    also arrow and keypad driving (the wheel readout matched hand-computed speeds), End, and exit code 0
+  - `run_sim.sh --viewer` stopped with Ctrl-C: exit code 0 in 3 of 3 runs (Xvfb)
+  - every converter option compiles
+  - `robot.xml` is reproduced byte-identically (with symlinked mesh folders too, tested before the base was added)
 
-## Model facts
+  Not yet run on the cluster: `verify.sh`'s new-model section (it needs the Humble container).
 
-14 position-controlled revolute joints (`l_joint1..7`, `r_joint1..7`), fixed torso, fixed grippers (appearance only);
-65.6 kg in total, no contacts at the home keyframe. Physics runs about 100x real time on one core. Holding home, the
-arms sag up to 0.067 rad under gravity (position actuators with `kp=120` and no gravity compensation), which is why
-the READY tolerance is 0.08 rad. Damping, armature, gains (`kp=120`, `kv=8`), force limits and contact settings are
-nominal simulation values, not calibrated to the real robot. The simulator does not implement end-effector pose,
-gripper, chassis, lift or IK APIs.
+## Vendor model facts (`mujoco/`)
+
+The vendor model has 14 position-controlled revolute joints (`l_joint1..7`, `r_joint1..7`), a fixed torso, and fixed
+grippers (appearance only). It weighs 65.6 kg and has no contacts at the home keyframe. Physics runs about 100x real
+time on one core.
+
+Holding home, the arms sag up to 0.067 rad under gravity (position actuators with `kp=120` and no gravity
+compensation), which is why the READY tolerance is 0.08 rad. Damping, armature, gains (`kp=120`, `kv=8`), force
+limits (+-150) and contact settings are nominal simulation values, not calibrated to the real robot. Its URDF
+(`urdf20260625`) has placeholder limits (effort 0, velocity 5) and narrower joint ranges than the new one.
+
+Neither simulator implements end-effector pose, gripper, chassis, lift or IK APIs.
 
 | joint | range (rad) | home | | joint | range (rad) | home |
 |---|---|---|---|---|---|---|

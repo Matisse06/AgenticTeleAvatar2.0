@@ -1,0 +1,14 @@
+{
+  "package": "urdf_20260825_textured",
+  "urdf": "urdf/urdf_20260825_textured.urdf",
+  "path_policy": "all mesh and texture paths are relative to the URDF",
+  "visual_meshes": 41,
+  "visual_format": "OBJ+MTL+PNG",
+  "collision_meshes": 41,
+  "collision_format": "STL",
+  "gripper_input_range_radians": [
+    0.0,
+    1.0
+  ],
+  "body_texture_repair": "copied canonical textures and removed stale _2 suffix"
+}

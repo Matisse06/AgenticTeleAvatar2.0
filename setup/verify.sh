@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Runs every check from the vendor README, plus a CPU render, inside the container; prints a PASS/FAIL summary.
-# Takes about a minute on a CPU node (not on the login node):
-#   srun -p shared -c 4 --mem 8G -t 20 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh
+# Runs every check from the vendor README on the vendor model (mujoco/), then the same checks on the new model
+# (model/), plus CPU renders of both, inside the container; prints a PASS/FAIL summary. On a CPU node (not the login
+# node); the new model's video takes most of the time (about 5 minutes on 4 cores):
+#   srun -p shared -c 4 --mem 8G -t 30 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh
 # Outputs (renders, simulator log) go to ~/TeleAvatar2.0/outputs/verify/.
 set -uo pipefail
 if [[ -z ${TA_DIR:-} || ! -d /opt/ros/humble ]]; then
@@ -41,8 +42,31 @@ run "test_control.py --reordered-names" python3 test_control.py --reordered-name
 kill -TERM "$sim" 2>/dev/null; wait "$sim" 2>/dev/null
 
 # Offscreen CPU rendering (EGL + Mesa llvmpipe), for videos viewable in VS Code.
-run "render still" python3 "$TA_DIR/scripts/render_video.py" --output "$out/home.png"
-run "render video" python3 "$TA_DIR/scripts/render_video.py" --output "$out/wave.mp4"
+run "render still" python3 "$TA_DIR/scripts/render_video.py" --model "$TA_DIR/mujoco/scene.xml" --output "$out/home.png"
+run "render video" python3 "$TA_DIR/scripts/render_video.py" --model "$TA_DIR/mujoco/scene.xml" --output "$out/wave.mp4"
+
+# The new model (model/, see model/README.md). Its meshes come from the vendor archive: setup/unpack_assets.py.
+cd "$TA_DIR"
+run "new: assets verified" python3 setup/unpack_assets.py --verify-only
+before=$(sha256sum model/robot.xml)
+run "new: convert.py" python3 model/convert.py
+run "new: unit tests" python3 -m unittest discover -s model/tests -v
+if [[ $(sha256sum model/robot.xml) == "$before" ]]; then
+  results+=("PASS  new: robot.xml identical after regeneration")
+else
+  results+=("NOTE  new: robot.xml content changed after regeneration")
+fi
+run "new: smoke_test.py" python3 model/smoke_test.py
+./model/run_sim.sh > "$out/run_sim_new.log" 2>&1 &
+sim=$!
+for _ in $(seq 120); do  # wait (up to 60 s) until the simulator has loaded the model
+  grep -q "simulator ready" "$out/run_sim_new.log" 2>/dev/null && break
+  sleep 0.5
+done
+run "new: vendor test_control.py --reordered-names" python3 mujoco/test_control.py --reordered-names
+kill -TERM "$sim" 2>/dev/null; wait "$sim" 2>/dev/null
+run "new: render still" python3 scripts/render_video.py --output "$out/new_home.png"
+run "new: render video" python3 scripts/render_video.py --output "$out/new_wave.mp4"
 
 echo; echo "===== summary ($(date '+%F %T'))"
 printf '%s\n' "${results[@]}"
