@@ -14,10 +14,11 @@ It replaces the vendor's dual-arm model in `../mujoco/` (kept as delivered) and 
 ## First run on a machine: unpack, convert, run
 
 The meshes and textures are not in git (590 MB; GitHub refuses files over 100 MB). On a fresh checkout,
-`scene.xml` does not load until both steps below have run:
+`scene.xml` does not load until both steps below have run. Run them in the Python environment from `../README.md`
+(Quick start, step 1):
 
 ```bash
-pip install py7zr                                               # on the cluster: ./sim.sh uv pip install py7zr
+pip install -r setup/requirements.lock py7zr                    # on the cluster: ./sim.sh uv pip install py7zr
 python3 setup/unpack_assets.py urdf_20260825_textured9.21.7z    # -> model/vendor/{visual,collision}/, checksummed
 python3 model/convert.py                                        # -> robot.xml, robot_mobile.xml, textures_1024/
 python3 -m unittest discover -s model/tests -v                  # 21 tests, about 10 s

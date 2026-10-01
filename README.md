@@ -9,7 +9,15 @@ API, so clients written for the real arms run against it unchanged.
 
 Tested with Python 3.10 and MuJoCo 3.14.0 on Ubuntu 22.04.
 
-1. Install the Python packages: `pip install -r setup/requirements.lock py7zr`
+1. Create a Python environment and install the packages:
+
+   ```bash
+   python3 -m venv --system-site-packages .venv   # if this fails on Ubuntu: sudo apt install python3-venv
+   source .venv/bin/activate                      # again in every new terminal
+   pip install -r setup/requirements.lock py7zr
+   ```
+
+   `--system-site-packages` keeps the system's Python packages visible: ROS 2's `rclpy` needs them.
 2. Download the robot's meshes. They are not in git (590 MB unpacked; GitHub refuses files over 100 MB). Get
    `urdf_20260825_textured9.21.7z` (118.6 MB) from the robot's documentation page,
    **https://www.dexteleop.com/docs/teleavatar-2/resources/urdf** (the 9.14 and 9.17 archives hold the same meshes).
@@ -22,30 +30,40 @@ Tested with Python 3.10 and MuJoCo 3.14.0 on Ubuntu 22.04.
 
 4. Try it: `python3 model/play.py`
 
-On the FASRC cluster, run the same commands through `./sim.sh`, which provides ROS 2 Humble and the Python
-environment (see `CLAUDE.md`).
+On the FASRC cluster, skip step 1 and run the other commands through `./sim.sh`, which provides ROS 2 Humble and the
+Python environment (add py7zr with `./sim.sh uv pip install py7zr`; see `CLAUDE.md`).
 
 Don't unpack the archive into the repository by hand: it has its own `README.md`, which would replace this one.
 
 ## Commands
 
+From the repository root, with the environment active (`source .venv/bin/activate`):
+
 | what | command |
 |---|---|
 | Interactive viewer: the robot's camera views and a slider per actuator | `python3 model/play.py` |
 | ... with the drivable base (keyboard driving) | `python3 model/play.py --mobile-base` |
-| MuJoCo's own viewer (load the `home` key in its Simulation panel) | `python3 -m mujoco.viewer --mjcf=model/scene.xml` |
+| MuJoCo's own viewer | `python3 -m mujoco.viewer --mjcf=model/scene.xml` |
+| ... with the drivable base (its `base_*` sliders; the wheels don't turn there) | `python3 -m mujoco.viewer --mjcf=model/scene_mobile.xml` |
 | Video or still, rendered offscreen (`--motion hold\|wave`, `--camera head`, ...) | `python3 scripts/render_video.py --output outputs/wave.mp4` |
 | ... the base driving around a square | `python3 scripts/render_video.py --mobile-base --motion drive --output outputs/drive.mp4` |
 | ROS 2 simulator with the robot's arm API (`--viewer` to watch it) | `./model/run_sim.sh` |
 | The vendor's ROS client against it | `python3 mujoco/test_control.py --reordered-names` |
 | Unit tests (21, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
 
-In `play.py`: Backspace returns home, Space pauses, and `[` and `]` switch the view to the robot's cameras. With
-`--mobile-base`, Up and Down also change the driving speed, Left and Right the turn rate, keypad 4 and 6 move
-sideways, and End stops.
+`play.py` is MuJoCo's viewer with additions: it starts in the `home` pose, shows what the head and wrist cameras see,
+follows the robot, and with `--mobile-base` drives the base from the keyboard and turns the wheels to match. Backspace
+returns home, Space pauses, and `[` and `]` switch the view to the robot's cameras. With `--mobile-base`, Up and Down
+also change the driving speed, Left and Right the turn rate, keypad 4 and 6 move sideways, and End stops.
 
-The ROS simulator needs ROS 2 (Humble or later). It uses ROS domain 90 with localhost-only discovery and refuses domain
-29, which is the production robot's.
+MuJoCo's own viewer runs the model and nothing else. It starts, and resets with Backspace, with every joint at 0 (arms
+straight out); for the home pose, set Key to 0 in its Simulation panel and click Load key. The sliders are in its
+Control panel. With `scene_mobile.xml`, `base_x`, `base_y` and `base_yaw` set the base's velocity in the world frame
+(m/s, rad/s; 0 holds the pose), and the wheels stay still.
+
+The ROS commands need ROS 2 (Humble or later): `run_sim.sh` sources it; before the others, run
+`source /opt/ros/<distro>/setup.bash`. The simulator uses ROS domain 90 with localhost-only discovery and refuses
+domain 29, which is the production robot's.
 
 From Python (headless machines: set `MUJOCO_GL=egl` before importing mujoco):
 
