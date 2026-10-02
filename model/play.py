@@ -9,7 +9,8 @@ It needs a display (on the cluster, a Remote Desktop: see CLAUDE.md). It starts 
 time, with the view following the robot (Esc frees it).
 - Insets (right): what the head and wrist cameras see, rendered like render_video.py's images.
 - Control panel (right): a slider per actuator. Arms in rad; lift in m (0 is the top, positive lowers the torso);
-  grippers from 0 (closed) to 1 (open). With --mobile-base also the base's velocity in the world frame: base_x and
+  grippers in N m of motor torque, from -1.6 (closing) to +2.0 (opening), the range the robot's 0..1 command spans
+  (model/gripper.py). With --mobile-base also the base's velocity in the world frame: base_x and
   base_y in m/s, base_yaw in rad/s (0 holds the pose); while the keyboard drives, it sets those sliders.
 - Keys: Backspace returns home; Space pauses. With --mobile-base: Up / Down change the forward speed and Left / Right
   the turn rate, one step per press; on the keypad, 8 / 2 forward and back, 4 / 6 sideways, 7 / 9 turn; End or keypad

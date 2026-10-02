@@ -21,7 +21,7 @@ The meshes and textures are not in git (590 MB; GitHub refuses files over 100 MB
 pip install -r setup/requirements.lock py7zr                    # on the cluster: ./sim.sh uv pip install py7zr
 python3 setup/unpack_assets.py urdf_20260825_textured9.21.7z    # -> model/vendor/{visual,collision}/, checksummed
 python3 model/convert.py                                        # -> robot.xml, robot_mobile.xml, textures_1024/
-python3 -m unittest discover -s model/tests -v                  # 21 tests, about 10 s
+python3 -m unittest discover -s model/tests -v                  # 22 tests, about 10 s
 ```
 
 Download the archive from the robot's documentation page,
@@ -36,7 +36,9 @@ meshes, so any of them works.
 - 17 actuators:
   - `armL1`..`armL7`, `armR1`..`armR7` (rad; the first 14, in this order)
   - `lift` (m: 0 is the top, positive lowers the torso, range 0..0.74)
-  - `left_gripper`, `right_gripper` (0 = closed .. 1 = open)
+  - `left_gripper`, `right_gripper`: motor torque in N m, -1.6 (closing) to +2.0 (opening). On the robot a 0 to 1
+    command sets that torque; `gripper.torque(command)` (`model/gripper.py`) converts it: 0 opens fully, 0.6 to 1
+    grasps
 - Joint 3's range in the URDF disagrees with the real robot's software limits; until the vendor answers, keep it
   within both (see the note at the top of `../README.md`).
 - The base is fixed and the wheels are welded by default, as in the vendor's simulator. The drivable base is ours,
@@ -73,7 +75,8 @@ meshes, so any of them works.
 ## ROS 2 simulator
 
 It has the vendor simulator's API: the same topics, FSM and `l_joint1..7` / `r_joint1..7` names. The lift and
-grippers hold their home targets (`--lift`, `--gripper` change them), and the base is fixed: the API has no base.
+grippers hold their home targets (`--lift`, and `--gripper` with the robot's 0 to 1 command, change them), and the
+base is fixed: the API has no base.
 
 ```bash
 ./model/run_sim.sh                                   # headless, 200 Hz; --viewer for the MuJoCo viewer
@@ -101,14 +104,54 @@ dataset (training and evaluation alike).
 
 ## Where the values come from
 
-| from the vendor | nominal or assumed (see the constants in `convert.py`) |
+Everything that is not in the vendor's URDF or MuJoCo files is listed here: values we chose, estimated or assumed,
+and facts taken from the vendor's online documentation. If the simulation behaves differently from the real robot,
+look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has the details.
+
+**From the vendor's files**
+- URDF (`teleavatar_urdf_20260928.urdf`): kinematics, masses, inertias, joint ranges (but see joint 3 in
+  `../README.md`), torque limits, the wheel layout and the wheel motors' torque, camera mounts (`eye_Link`,
+  `lg_link8`, `rg_link8`) and the reference frames (sites)
+- the archive `urdf_20260825_textured9.21.7z`: visual and collision meshes, colour textures, and `manifest.json`
+  (the gripper input joint and its range, 0 to 1 rad)
+- the damping document (`vendor/各关节阻尼参数.docx`): arm damping and friction measured on the robot (table 2), and
+  the gripper input's damping and friction (table 1)
+- the vendor's MuJoCo model (`../mujoco/`): arm position gains (kp 120, kv 8), arm armature 0.02, and the `home` arm
+  pose, which is also the start pose of their pi0.5 deployment (`zero.py` in github.com/dexteleop/openpi)
+
+**From the vendor's online documentation** (https://www.dexteleop.com/docs/teleavatar-2), not in the files
+
+| fact | used in the model? |
 |---|---|
-| kinematics, masses, inertias, joint ranges and torque limits (URDF) | position gains (`kp` 120, `kv` 8, the vendor model's), armature 0.02 |
-| arm joint damping and friction, measured (`vendor/各关节阻尼参数.docx`, table 2) | gripper coupling: finger angle = -0.98 x input |
-| gripper input joint and range (`manifest.json`), its damping and friction (docx table 1) | gravity compensation in the joint controllers |
-| visual meshes and colour textures; collision meshes (made convex, see below) | camera fields of view (58 deg), wrist camera image orientation |
-| camera mounts (`eye_Link`, `lg_link8` / `rg_link8`) | lift home 0.136 m (shoulders 1.27 m up, like the old model) |
-| wheel layout; base force limits, from the wheel motors' torque | kinematic base: its gains, speed limits and ramp |
+| the robot's software joint limits (§4.13, also their openpi `arm_config.yml`) | no, the URDF's are used; joint 3 disagrees (see `../README.md`) |
+| the gripper takes a force command from 0 to 1: +2.0 N m at 0 (opening), 0 at 0.1, -1.6 N m at 1 (closing) (§4.4.1); the URDF's 2 N m effort limit matches | yes: the grippers are torque motors, and `gripper.py` applies this curve |
+| the gripper is closed at motor angle 0 and opens as it grows (§4.4.2) | yes, the same direction |
+| the head cameras' centre lies between their two eyes, looking 26 deg down (appendix A.3) | yes, it is the URDF's `eye_Link`, where the `head` camera sits |
+| the cameras are stereo fisheye pairs (head 960 x 960 per eye, wrists 640 x 400), calibrated for each robot (§5) | no, see the cameras below |
+| the base accelerates at up to 0.3 m/s^2 and brakes at up to 0.6 m/s^2 (§4.5) | no, `mobile_base.py` ramps at 1 m/s^2 |
+
+**Chosen, estimated or assumed by us**
+
+| what | value | status |
+|---|---|---|
+| lift controller | kp 20000, kv 2000, damping 100, armature 0.1 | nominal |
+| gripper drive | the documented torque, applied to the input joint; armature 0.001 | assumed: the input joint is the motor's output angle (the docs' q, §4.4.2) |
+| gripper stops and linkage | MuJoCo time constant 5 ms (the default is 20 ms) | numerical: with the default, the documented torques stretch them by up to 0.035 rad |
+| gripper speed | about 0.1 s for a full stroke (the vendor's damping with the documented torques) | known difference: the URDF lists 2 rad/s (about 0.5 s per stroke), which MuJoCo does not enforce |
+| gripper fingers | finger angle = -0.98 x input | inferred from the joint ranges: the URDF does not link the input to the fingers |
+| gripper linkage armature | 0.0002 | numerical stability of the 10 g linkage bars |
+| arm joint 4 damping | 0 | the measured value is negative |
+| gravity compensation | in the arm, lift and gripper controllers (at home, 0.0000 N m on the gripper input) | assumed (`--no-gravcomp` turns it off) |
+| `home` keyframe | lift 0.136 m, grippers open | the lift puts the shoulders 1.27 m up, as in the old model |
+| cameras | one undistorted camera at the centre of each stereo pair, 58 deg field of view | nominal until the calibration is known |
+| wrist cameras | at the centre of the lens face (measured on the mesh), fingers at the bottom of the image | estimated; orientation assumed |
+| textures | scaled to 1024 px (the vendor's are 2048) | memory; `--texture-size 0` uses the originals |
+| base height | axles 89.7 mm up | measured on the wheel meshes |
+| collision shapes | 323 convex pieces (CoACD) | the raw meshes cannot be used (see below) |
+| contact exclusions | 63 pairs (66 with the drivable base) | from sweeping the lift and 3000 random poses |
+| simulation settings | timestep 2 ms, `implicitfast`, elliptic friction cones, `impratio` 10 | MuJoCo's advice for grasping |
+| drivable base (`robot_mobile.xml` only) | kinematic joints and gains, limits of 1 m/s and 1.5 rad/s, a 1 m/s^2 ramp (`mobile_base.py`), 4.5 m of travel, wheels turned to match | all ours |
+| scene (`scene.xml`) | floor, lights, three scene cameras | ours |
 
 ## Regenerating derived files
 

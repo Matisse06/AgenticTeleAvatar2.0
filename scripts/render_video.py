@@ -28,6 +28,8 @@ import mujoco
 import numpy as np
 
 DEFAULT_MODEL = Path(__file__).resolve().parents[1] / "model" / "scene.xml"
+sys.path.insert(0, str(DEFAULT_MODEL.parent))
+import gripper  # noqa: E402  (model/gripper.py: the robot's gripper command -> motor torque)
 ARM_JOINT = re.compile(r"^(l_joint|r_joint)\d$|^arm[LR]\d_joint$")  # vendor model / new model
 # 'drive': (seconds, forward m/s, left m/s, turn rad/s) in the robot's frame. 0.6 m ahead, 0.6 m left, a quarter turn
 # left, then the same legs back (now sideways and reversing), and a quarter turn right: back at the start.
@@ -96,7 +98,6 @@ def main() -> None:
     if args.motion == "drive":
         if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "base_x") < 0:
             parser.error("--motion drive needs the drivable base: add --mobile-base")
-        sys.path.insert(0, str(DEFAULT_MODEL.parent))
         from mobile_base import MobileBase
         base = MobileBase(model)
         ends = np.cumsum([leg[0] for leg in DRIVE])
@@ -118,8 +119,9 @@ def main() -> None:
                 ramp = min(1.0, data.time / 1.0)  # ease in over the first second
                 wave = home + ramp * args.amplitude * np.sin(2 * np.pi * data.time / args.period + phase)
                 data.ctrl[arm] = np.clip(wave, low, high)[arm]
-                for index in grippers:  # open (1) and close (0) once per period, starting open
-                    data.ctrl[index] = 0.5 + 0.5 * np.cos(2 * np.pi * data.time / args.period)
+                closing = (data.time % args.period) >= 0.5 * args.period  # open, then close, once per period
+                for index in grippers:  # the robot's commands 0 (open) and 1 (close), as motor torque
+                    data.ctrl[index] = gripper.torque(1.0 if closing else 0.0)
             if base is not None:
                 leg = min(int(np.searchsorted(ends, data.time, side="right")), len(DRIVE) - 1)
                 base.command(data, *DRIVE[leg][1:] if data.time < ends[-1] else (0, 0, 0))

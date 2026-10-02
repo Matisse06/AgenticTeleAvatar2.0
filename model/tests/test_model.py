@@ -20,6 +20,7 @@ HERE = Path(__file__).resolve().parents[1]
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 import convert  # noqa: E402
+import gripper  # noqa: E402
 import mobile_base  # noqa: E402
 
 BASE = [name for name, _, _ in convert.BASE_JOINTS]
@@ -146,14 +147,20 @@ class ModelTest(unittest.TestCase):
         self.assertLess(float(np.abs(data.efc_pos[rows]).max()), 1e-9)
 
     def test_actuators_match_the_urdf_limits(self):
+        grippers = {self.model.actuator(f"{side}_gripper").id for side in convert.GRIPPERS}
         for index in range(self.model.nu):  # in the default model every actuator drives a URDF joint
             joint = self.model.joint(self.model.actuator_trnid[index, 0]).name
             limit = self.limits[joint]
+            effort = float(limit.get("effort"))
+            self.assertEqual(list(self.model.jnt_actfrcrange[self.model.joint(joint).id]), [-effort, effort])
+            if index in grippers:  # motor torque (developer docs §4.4.1), within the URDF's effort
+                self.assertEqual(list(self.model.actuator_ctrlrange[index]),
+                                 [gripper.CLOSE_TORQUE, gripper.OPEN_TORQUE])
+                self.assertLessEqual(max(-gripper.CLOSE_TORQUE, gripper.OPEN_TORQUE), effort)
+                continue
             self.assertEqual(list(self.model.actuator_ctrlrange[index]), [float(limit.get("lower")),
                                                                           float(limit.get("upper"))])
-            effort = float(limit.get("effort"))
             self.assertEqual(list(self.model.actuator_forcerange[index]), [-effort, effort])
-            self.assertEqual(list(self.model.jnt_actfrcrange[self.model.joint(joint).id]), [-effort, effort])
         names = [self.model.actuator(i).name for i in range(self.model.nu)]
         self.assertEqual(names[:14], [name.replace("_joint", "") for name in convert.ARM_JOINTS])
         # The drivable variant adds the base's three after them; see test_base_limits_follow_the_wheel_motors.
@@ -304,19 +311,41 @@ class ModelTest(unittest.TestCase):
         self.assertLess(drift, 0.002)
         self.assertLess(abs(base.pose(data)[2]), 0.002)
 
-    def test_gripper_input_drives_the_fingers(self):
+    def test_gripper_command_follows_the_documented_curve(self):
+        # Developer docs §4.4.1: command -> motor torque (N m); 0.20 gives "about -0.18".
+        for command, torque in ((0.0, 2.0), (0.05, 1.0), (0.10, 0.0), (0.20, -0.1778), (0.55, -0.8), (1.0, -1.6)):
+            self.assertAlmostEqual(gripper.torque(command), torque, places=4)
+        commands = np.linspace(0, 1, 101)
+        np.testing.assert_allclose(gripper.command(gripper.torque(commands)), commands, atol=1e-12)
+        self.assertEqual(gripper.torque(-0.5), gripper.OPEN_TORQUE)  # clipped to [0, 1]
+        with self.assertRaises(ValueError):
+            gripper.torque(float("nan"))
+        for side in convert.GRIPPERS:  # home: command 0, open
+            home_ctrl = self.model.key("home").ctrl[self.model.actuator(f"{side}_gripper").id]
+            self.assertEqual(home_ctrl, gripper.OPEN_TORQUE)
+
+    def test_gripper_command_drives_the_fingers(self):
         data = self.home_data()
-        for target in (0.0, 1.0, 0.4):
-            data.ctrl[self.model.actuator("left_gripper").id] = target
-            data.ctrl[self.model.actuator("right_gripper").id] = target
-            for _ in range(750):
+        actuators = [self.model.actuator(f"{side}_gripper").id for side in convert.GRIPPERS]
+
+        def run(command: float, steps: int) -> list:
+            data.ctrl[actuators] = gripper.torque(command)
+            for _ in range(steps):
                 mujoco.mj_step(self.model, data)
-            for prefix in convert.GRIPPERS.values():
-                value = self.qpos(data, f"{prefix}_joint1")
-                self.assertAlmostEqual(value, target, delta=0.01)
-                self.assertAlmostEqual(self.qpos(data, f"{prefix}_joint2"), convert.GRIPPER_COUPLING * value, delta=1e-3)
-                self.assertAlmostEqual(self.qpos(data, f"{prefix}_joint3"), -self.qpos(data, f"{prefix}_joint2"),
-                                       delta=1e-3)  # mimic multiplier -1
+            return [self.qpos(data, f"{prefix}_joint1") for prefix in convert.GRIPPERS.values()]
+
+        np.testing.assert_allclose(run(1.0, 500), 0.0, atol=0.02)  # closes until the fingertips touch
+        np.testing.assert_allclose(run(0.0, 500), 1.0, atol=0.02)  # opens to the stop
+        while min(run(0.55, 1)) > 0.5:  # close part way, then stop pushing (command 0.1: no torque)
+            pass
+        held = run(0.1, 100)  # it coasts briefly, then stops
+        np.testing.assert_allclose(run(0.1, 500), held, atol=0.001)  # friction holds it there
+        for prefix in convert.GRIPPERS.values():
+            value = self.qpos(data, f"{prefix}_joint1")
+            self.assertGreater(value, 0.3)
+            self.assertAlmostEqual(self.qpos(data, f"{prefix}_joint2"), convert.GRIPPER_COUPLING * value, delta=1e-3)
+            self.assertAlmostEqual(self.qpos(data, f"{prefix}_joint3"), -self.qpos(data, f"{prefix}_joint2"),
+                                   delta=1e-3)  # mimic multiplier -1
 
     def test_grasp_a_box_and_raise_the_lift(self):
         data = self.home_data()
@@ -332,7 +361,7 @@ class ModelTest(unittest.TestCase):
         data.ctrl[:] = self.model.key("home").ctrl
         box_id = model.body("box").id
         model.body_gravcomp[box_id] = 1  # float the box while the gripper closes on it
-        data.ctrl[model.actuator("left_gripper").id] = 0.0
+        data.ctrl[model.actuator("left_gripper").id] = gripper.torque(0.8)
         for _ in range(500):
             mujoco.mj_step(model, data)
         model.body_gravcomp[box_id] = 0

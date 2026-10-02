@@ -58,7 +58,7 @@ From the repository root, with the environment active (`source .venv/bin/activat
 | ... the base driving around a square | `python3 scripts/render_video.py --mobile-base --motion drive --output outputs/drive.mp4` |
 | ROS 2 simulator with the robot's arm API (`--viewer` to watch it) | `./model/run_sim.sh` |
 | The vendor's ROS client against it | `python3 mujoco/test_control.py --reordered-names` |
-| Unit tests (21, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
+| Unit tests (22, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
 
 `play.py` is MuJoCo's viewer with additions: it starts in the `home` pose, shows what the head and wrist cameras see,
 follows the robot, and with `--mobile-base` drives the base from the keyboard and turns the wheels to match. Backspace
@@ -97,9 +97,13 @@ textured meshes:
 - From the vendor: kinematics, masses, inertias, joint ranges and torque limits (URDF); arm joint damping and
   friction, measured on the robot.
 - Joint angles mean the same as in the robot's ROS API: `l_jointN` is `armLN_joint`, `r_jointN` is `armRN_joint`.
-- 17 actuators: the 14 arm joints (rad); `lift` (m, 0 is the top); `left_gripper` and `right_gripper` (0 closed, 1
-  open). The drivable-base variant adds `base_x`, `base_y` and `base_yaw` (the base's velocity).
+- 17 actuators: the 14 arm joints (rad); `lift` (m, 0 is the top); `left_gripper` and `right_gripper` (motor torque
+  in N m, from -1.6 closing to +2.0 opening, as on the robot: `model/gripper.py` converts the robot's 0 to 1 gripper
+  command). The drivable-base variant adds `base_x`, `base_y` and `base_yaw` (the base's velocity).
 - Collision uses simplified convex shapes made from the vendor's meshes (`model/assets/collision/`, in git).
+- Everything not taken from the vendor's URDF or MuJoCo files (our choices and estimates, and facts from the vendor's
+  online documentation) is listed in `model/README.md`, under "Where the values come from". If the simulation and
+  the robot disagree, check there first.
 - Gains and the gripper coupling are nominal: the vendor doesn't publish them.
 - The cameras are simplified: each is a single undistorted (pinhole) camera with a nominal 58 degree field of view.
   The real robot has stereo fisheye pairs (head 960 x 960 per eye, wrists 640 x 400), calibrated for each robot, so

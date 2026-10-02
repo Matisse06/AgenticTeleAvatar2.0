@@ -31,7 +31,7 @@ faithful (below).
   - `assets/collision/` (tracked, 6 MB): convex collision pieces made by `build_collision.py`.
     `build_visual_lite.py` makes optional lighter visual meshes (`assets/visual_<N>/`, gitignored).
   - `mobile_base.py`: drives the drivable base in the robot's frame and rolls its wheels. `play.py`: the viewer.
-  - `ros2_sim_node.py`, `run_sim.sh`, `smoke_test.py`: the ROS 2 simulator. `tests/test_model.py`: 21 unit tests.
+  - `ros2_sim_node.py`, `run_sim.sh`, `smoke_test.py`: the ROS 2 simulator. `tests/test_model.py`: 22 unit tests.
 - `mujoco/`: the vendor folder, kept as delivered (commit `3baa2b9` is the original; `mujoco.zip` was a byte-identical
   copy and is no longer tracked). The README steps and the unit tests rewrite `robot.xml`, but its content comes out
   identical. Put our own code outside this folder. `model/` imports two vendor files (the helpers in
@@ -142,24 +142,34 @@ unchanged. The robot also allows a little more than the URDF on joints 2 (1.9 ag
 
 ### Where the simulation values come from
 
+The user's rule (2026-10-01): every value or fact not taken from the vendor's URDF or MuJoCo files (chosen,
+estimated, assumed, or fetched from the vendor's docs and repos) is listed in `model/README.md`, "Where the values
+come from", so that differences from the real robot can be traced. Update that list with every such change.
+
 - **From the vendor**:
   - kinematics, masses, inertias, ranges and torque limits (URDF)
   - arm damping (viscous) and friction (Coulomb, as MuJoCo `frictionloss`), measured on the robot (docx table 2;
     `--damping empirical` uses the vendor's table 1 instead)
   - the gripper input's damping 0.12 and friction 0.08 (table 1)
+  - the gripper's drive (developer docs §4.4.1): the robot's 0..1 command sets the motor torque, +2.0 N m (opening)
+    to -1.6 N m (closing); the actuators take that torque and `model/gripper.py` converts the command. The URDF's
+    effort limit on the input joint, 2 N m, matches.
 - **NOMINAL** (the vendor publishes none):
-  - position gains: arms kp 120 / kv 8 (the vendor model's), lift kp 20000 / kv 2000 / damping 100, gripper
-    kp 4 / kv 0.2, and in the drivable variant base kp 340000 / kv 10800 (yaw 17000 / 545)
+  - position gains: arms kp 120 / kv 8 (the vendor model's), lift kp 20000 / kv 2000 / damping 100, and in the
+    drivable variant base kp 340000 / kv 10800 (yaw 17000 / 545)
+  - the gripper's stops and linkage constraints: a 5 ms time constant (`GRIPPER_SOLREF`). With MuJoCo's default 20 ms
+    the documented torques stretch them by up to 0.035 rad, with 5 ms by at most 0.002 rad.
   - drivable variant: base command limits 1 m/s and 1.5 rad/s (the wheel motors' 18.84 rad/s would allow 1.7 m/s
     and 4.7 rad/s), the ramp in `mobile_base.py`, and the base's travel of 4.5 m either way, which keeps it on the
     scene's floor
-  - armature: arms 0.02 (the vendor model's), linkage joints 0.0002
+  - armature: arms 0.02 (the vendor model's), gripper input 0.001, linkage joints 0.0002
   - camera fovy 58 deg
   - timestep 2 ms with `implicitfast`; elliptic friction cones with `impratio` 10 (MuJoCo's advice for grasping)
 - **ASSUMED** (each is a constant in `convert.py`; flags where noted):
   - gravity compensation in the joint controllers, via `gravcomp` and `actuatorgravcomp`, so it counts against the
     torque limits. `--no-gravcomp` turns it off; the arms then sag up to 0.086 rad at home (the vendor model: 0.067).
-  - the gripper coupling, and the gripper's home (open)
+  - the gripper coupling; the gripper input joint as the motor's output angle, so the documented torque acts on it
+    directly; and the gripper's home (command 0, open)
   - the wrist camera orientation
   - the lift home (`--lift-home`)
   - the kinematic base (see above)
@@ -180,8 +190,10 @@ unchanged. The robot also allows a little more than the URDF on joints 2 (1.9 ag
   The remaining self-collisions (arms against the torso or column, forearm against upper arm) are real and kept.
 - **Checks** (2026-10-01, this workstation):
   - no contacts at home, and the arms hold home exactly (friction plus gravity compensation)
-  - the gripper tracks 0, 0.5 and 1, with the constraints holding to 1e-7
-  - it grasps a 4 cm box and keeps it while the lift rises 10 cm (the box rises 96 of 100 mm)
+  - the gripper closes (command 1) and opens (command 0) 90% of its stroke in about 0.1 s (the URDF lists 2 rad/s,
+    which MuJoCo does not enforce), friction holds it at command 0.1, and under full torque its stops and
+    constraints give at most 0.002 rad
+  - it grasps a 4 cm box (command 0.8) and keeps it while the lift rises 10 cm (the box rises 99.5 of 100 mm)
   - in the drivable variant, the base drives 0.6 m ahead, turns 1 rad and moves 0.4 m sideways, each to within 1 mm,
     with no contacts. The arms then rest within joint friction's dead band (up to 0.0063 rad for joint 2: 0.751 N m
     against kp 120).
@@ -374,6 +386,8 @@ partition was down for maintenance until 2026-10-02; `shared` works.
   - the vendor's `test_control.py --reordered-names` against `model/run_sim.sh`: target within 0.0073 rad and start
     restored within 0.0075 rad, about 9x tighter than the vendor model, mostly from gravity compensation
   - `render_video.py` on both models; `--motion drive` brings the base back to its start within 1.3 mm and 0.01 deg
+  - after the gripper became force-driven: the 22 unit tests with ROS sourced, `render_video.py`, `play.py` with and
+    without `--mobile-base` (Xvfb), `smoke_test.py`, and `run_sim.sh --gripper 0.8`
   - `model/play.py`: on this workstation's display (NVIDIA), the window opens with the camera insets; under Xvfb,
     also arrow and keypad driving with `--mobile-base` (the wheel readout matched hand-computed speeds), End, the
     drive keys doing nothing without it, and exit code 0

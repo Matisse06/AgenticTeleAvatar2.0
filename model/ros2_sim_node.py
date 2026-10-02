@@ -4,7 +4,8 @@
 Same topics, messages, FSM and command validation as mujoco/ros2_sim_node.py (it loads that file's helpers), so
 clients written for the vendor simulator, such as mujoco/test_control.py, work unchanged. The API's l_joint1..7 and
 r_joint1..7 are this model's armL1..7_joint and armR1..7_joint (same angle conventions). As in the vendor simulator,
-the lift and grippers have no API: they hold the home keyframe's targets, which --lift and --gripper change. The base
+the lift and grippers have no API: they hold the home keyframe's targets, which --lift and --gripper change (the
+gripper as the robot's 0..1 command, mapped to motor torque by model/gripper.py). The base
 is fixed (model/scene.xml); with --model model/scene_mobile.xml it is drivable but, having no API either, holds still.
 
   ./model/run_sim.sh                  # headless, 200 Hz joint states
@@ -28,6 +29,8 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, Int32, String
+
+from gripper import torque as gripper_command_torque  # model/gripper.py
 
 HERE = Path(__file__).resolve().parent
 
@@ -96,8 +99,9 @@ class TeleAvatarSim(Node):
         self.dadr = np.array([self.model.joint(name).dofadr[0] for name in names])
         self.act = np.array([actuator_for(self.model, name) for name in names])
         self.arm_slices = {"left": slice(0, 7), "right": slice(7, 14)}
-        # Lift and grippers: fixed targets, clipped to their control ranges.
-        for value, actuators in ((lift, ["lift"]), (gripper, ["left_gripper", "right_gripper"])):
+        # Lift and grippers: fixed targets, clipped to their control ranges. The gripper value is the robot's command.
+        gripper_torque = None if gripper is None else gripper_command_torque(gripper)
+        for value, actuators in ((lift, ["lift"]), (gripper_torque, ["left_gripper", "right_gripper"])):
             for name in actuators:
                 if value is not None:
                     index = self.model.actuator(name).id
@@ -234,7 +238,8 @@ def parse_args(args: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--ready-stable-cycles", type=int, default=5, help="consecutive 20 Hz checks")
     parser.add_argument("--lift", type=float, help="lift target in m (0 = top); default: home keyframe")
     parser.add_argument("--gripper", type=float,
-                        help="both gripper inputs, 0 (closed) .. 1 rad (open); default: home keyframe (open)")
+                        help="both grippers' command, as on the robot: 0 opens with the most force, 1 closes with "
+                             "the most force (model/gripper.py); default: home keyframe (0, open)")
     return parser.parse_args(args)
 
 
