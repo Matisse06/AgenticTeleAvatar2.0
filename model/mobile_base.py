@@ -1,7 +1,8 @@
 """Drive the TeleAvatar base: velocity commands in the robot's own frame, and wheels that roll with it.
 
-Only the drivable-base variant has a base to drive: model/scene_mobile.xml (robot_mobile.xml). The default
-model/scene.xml keeps the base fixed, as in the vendor's simulator.
+Only the drivable-base variants have a base to drive: model/scene_mobile.xml (robot_mobile.xml), and each scene's
+twin, scenes/<name>_mobile.xml (drivable_variant below names them). The default model/scene.xml and the scenes keep
+the base fixed, as in the vendor's simulator.
 
 The base moves kinematically (BASE_JOINTS in convert.py). World-frame joints base_x, base_y and base_yaw carry it, and
 their actuators (same names) take world-frame velocity commands, clipped per axis to 1 m/s and 1.5 rad/s, and hold the
@@ -16,6 +17,7 @@ them at the speed of an omni wheel that rolls without slipping (sideways, its ro
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -25,13 +27,22 @@ WHEELS = ("wheel1_wheel_joint", "wheel2_wheel_joint", "wheel3_wheel_joint")
 # NOMINAL: command() changes the velocity at most this fast (m/s^2, rad/s^2), like a base controller's ramp. The
 # actuators' force limits alone would allow 4 m/s^2.
 ACCELERATION, TURN_ACCELERATION = 1.0, 2.0
+MOBILE = "_mobile"  # a model file's drivable-base variant sits next to it, with this suffix
+
+
+def drivable_variant(path: str | Path) -> Path:
+    """The drivable-base variant of a model file: model/scene.xml -> model/scene_mobile.xml, and every scene's twin,
+    scenes/table_cubes.xml -> scenes/table_cubes_mobile.xml. A variant is returned as it is."""
+    path = Path(path)
+    return path if path.stem.endswith(MOBILE) else path.with_name(path.stem + MOBILE + path.suffix)
 
 
 class MobileBase:
     def __init__(self, model: mujoco.MjModel) -> None:
         if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, JOINTS[0]) < 0:
-            raise ValueError("this model's base is fixed (model/scene.xml); the drivable base is in "
-                             "model/scene_mobile.xml (--mobile-base in play.py and render_video.py)")
+            raise ValueError("this model's base is fixed; its drivable-base variant is the file with '_mobile' "
+                             "(model/scene_mobile.xml, scenes/<name>_mobile.xml; --mobile-base in play.py and "
+                             "render_video.py)")
         self.qadr = np.array([model.joint(name).qposadr[0] for name in JOINTS])
         self.dadr = np.array([model.joint(name).dofadr[0] for name in JOINTS])
         self.actuators = np.array([model.actuator(name).id for name in JOINTS])

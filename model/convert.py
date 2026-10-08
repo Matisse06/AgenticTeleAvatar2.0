@@ -95,10 +95,12 @@ EXCLUDES = [
 # Cameras: (body, name, pos, quat, fovy). eye_Link is a ROS optical frame (z forward, x right, y down) and a MuJoCo
 # camera looks along -z with y up, hence the 180 deg turn about x. The wrist cameras (lg_link8 / rg_link8: a 71 x 25 x
 # 42 mm block, two lenses on its +z face, which looks at the fingertips) sit at that face's centre and are turned 180
-# deg about y, so the fingers are at the bottom of the image (ASSUMED orientation). Fields of view: NOMINAL until the
-# cameras' intrinsics are known (MJCF focalpixel / principalpixel / sensorsize then replace fovy, see CLAUDE.md).
+# deg about y, so the fingers are at the bottom of the image (ASSUMED orientation). Fields of view: the head's is the
+# vendor's spec, 120 x 120 deg per eye (user manual §2.3; a square image gives it, as the robot's 960 x 960 eyes), the
+# wrists' are NOMINAL. All are pinholes until the cameras' intrinsics are known (MJCF focalpixel / principalpixel /
+# sensorsize then replace fovy, see CLAUDE.md).
 CAMERAS = [
-    ("eye_Link", "head", (0, 0, 0), (0, 1, 0, 0), 58),
+    ("eye_Link", "head", (0, 0, 0), (0, 1, 0, 0), 120),
     ("lg_link8", "left_wrist", (0, -0.0008, 0.0414), (0, 0, 1, 0), 58),
     ("rg_link8", "right_wrist", (0, -0.0008, 0.0414), (0, 0, 1, 0), 58),
 ]

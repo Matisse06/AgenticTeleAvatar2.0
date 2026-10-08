@@ -544,7 +544,7 @@
             <inertial pos="4.4301e-07 0.00013193 -0.012794" mass="0.037057" fullinertia="9.1064e-07 2.6659e-06 3.204e-06 -1.3272e-10 -1.2906e-11 -2.193e-09" />
             <geom name="eye_Link_visual" class="visual" mesh="eye_Link_visual" material="eye_Link_None" pos="0 0 0" quat="1 0 0 0" />
             <geom name="eye_Link_collision_0" class="collision" mesh="eye_Link_collision_0" pos="0 0 0" quat="1 0 0 0" />
-            <camera name="head" pos="0 0 0" quat="0 1 0 0" fovy="58" />
+            <camera name="head" pos="0 0 0" quat="0 1 0 0" fovy="120" />
           </body>
           <body name="armL1_link" pos="-0.1005 0.0002 0" quat="0.707106781187 0 0.707106781187 0" gravcomp="1">
             <joint name="armL1_joint" type="hinge" axis="0 0 1" range="-2.967 2.967" damping="0.165" frictionloss="0.562" armature="0.02" actuatorfrcrange="-40 40" actuatorgravcomp="true" />

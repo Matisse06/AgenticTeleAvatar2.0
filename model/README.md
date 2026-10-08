@@ -32,6 +32,8 @@ meshes, so any of them works.
 
 - Try it: `python3 model/play.py` opens the MuJoCo viewer with the head and wrist cameras' views and a slider per
   actuator; `--mobile-base` adds keyboard driving (its docstring lists the keys).
+- Scenes put this model, unchanged, at a table with objects, with the base fixed or drivable: `../scenes/` (for
+  example `python3 model/play.py --model scenes/table_cubes.xml --mobile-base`).
 - Python: `mujoco.MjModel.from_xml_path("model/scene.xml")`; keyframe `home`.
 - 17 actuators:
   - `armL1`..`armL7`, `armR1`..`armR7` (rad; the first 14, in this order)
@@ -43,12 +45,12 @@ meshes, so any of them works.
   within both (see the note at the top of `../README.md`).
 - The base is fixed and the wheels are welded by default, as in the vendor's simulator. The drivable base is ours,
   so it is opt-in: `scene_mobile.xml` (`robot_mobile.xml`), loaded by `--mobile-base` in `play.py` and
-  `render_video.py`. It adds three actuators after the 17: `base_x`, `base_y` (m/s) and `base_yaw` (rad/s), the base's
-  velocity in the world frame; 0 holds the pose it reached. World-frame joints of the same names carry the base (the
-  first three in `qpos`), so it does not slip or tip. Drive it in its own frame with `mobile_base.py`, which also turns
-  the three omni wheels at the speed of rolling without slip (they do not touch the floor). Every move turns all
-  three: sideways, the rear wheel at full speed and the front two at half speed. Without `roll_wheels` the wheels
-  stay still while the base moves:
+  `render_video.py` (with `--model`, that file's `_mobile` variant: every scene in `../scenes/` has one). It adds three
+  actuators after the 17: `base_x`, `base_y` (m/s) and `base_yaw` (rad/s), the base's velocity in the world frame; 0
+  holds the pose it reached. World-frame joints of the same names carry the base (the first three in `qpos`), so it
+  does not slip or tip. Drive it in its own frame with `mobile_base.py`, which also turns the three omni wheels at the
+  speed of rolling without slip (they do not touch the floor). Every move turns all three: sideways, the rear wheel at
+  full speed and the front two at half speed. Without `roll_wheels` the wheels stay still while the base moves:
 
   ```python
   sys.path.insert(0, "model")  # from the repository root
@@ -63,8 +65,10 @@ meshes, so any of them works.
 - Cameras:
   - on the robot: `head`, `left_wrist`, `right_wrist`
   - in the scene: `overview`, `front`, `left_side`
-  - Simplified: one undistorted (pinhole) camera at each spot, with a nominal 58 deg field of view. The real ones are
-    stereo fisheye pairs, calibrated for each robot (see `CLAUDE.md`), so simulated images differ from real ones.
+  - Simplified: one undistorted (pinhole) camera at each spot. The head's field of view is the vendor's, 120 x 120
+    deg: render it square, like the robot's 960 x 960 head images (a 4:3 image shows 133 deg across). The wrists'
+    is a nominal 58 deg. The real ones are stereo fisheye pairs, calibrated for each robot (see `CLAUDE.md`), so
+    simulated images differ from real ones.
 - Sites (the URDF's reference frames): `left_ee`, `right_ee`, `left_shoulder_base`, `right_shoulder_base`
   (each shoulder's rotation centre), `virtual_base`; `left/right_base_virtual` are aliases of the shoulder bases.
 - Joint angles mean the same as in the vendor model and the ROS API: `l_jointN` is `armLN_joint`, `r_jointN` is
@@ -128,6 +132,7 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 | the gripper is closed at motor angle 0 and opens as it grows (§4.4.2) | yes, the same direction |
 | the head cameras' centre lies between their two eyes, looking 26 deg down (appendix A.3) | yes, it is the URDF's `eye_Link`, where the `head` camera sits |
 | the cameras are stereo fisheye pairs (head 960 x 960 per eye, wrists 640 x 400), calibrated for each robot (§5) | no, see the cameras below |
+| the cameras' fields of view, from the user manual (https://www.dexteleop.com/docs/user-manual §2.3): head 120 x 120 deg per eye (sensors 1920 x 1920 x 2), wrists 120 x 76 deg (2560 x 800 x 2), 45 Hz | head: yes, `fovy` 120 on a pinhole camera; wrists: no, 58 deg nominal |
 | the base accelerates at up to 0.3 m/s^2 and brakes at up to 0.6 m/s^2 (§4.5) | no, `mobile_base.py` ramps at 1 m/s^2 |
 
 **Chosen, estimated or assumed by us**
@@ -143,7 +148,7 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 | arm joint 4 damping | 0 | the measured value is negative |
 | gravity compensation | in the arm, lift and gripper controllers (at home, 0.0000 N m on the gripper input) | assumed (`--no-gravcomp` turns it off) |
 | `home` keyframe | lift 0.136 m, grippers open | the lift puts the shoulders 1.27 m up, as in the old model |
-| cameras | one undistorted camera at the centre of each stereo pair, 58 deg field of view | nominal until the calibration is known |
+| cameras | one undistorted (pinhole) camera at the centre of each stereo pair; the wrists' field of view 58 deg (the head's is the vendor's, above) | nominal until the calibration is known |
 | wrist cameras | at the centre of the lens face (measured on the mesh), fingers at the bottom of the image | estimated; orientation assumed |
 | textures | scaled to 1024 px (the vendor's are 2048) | memory; `--texture-size 0` uses the originals |
 | base height | axles 89.7 mm up | measured on the wheel meshes |
@@ -152,6 +157,7 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 | simulation settings | timestep 2 ms, `implicitfast`, elliptic friction cones, `impratio` 10 | MuJoCo's advice for grasping |
 | drivable base (`robot_mobile.xml` only) | kinematic joints and gains, limits of 1 m/s and 1.5 rad/s, a 1 m/s^2 ramp (`mobile_base.py`), 4.5 m of travel, wheels turned to match | all ours |
 | scene (`scene.xml`) | floor, lights, three scene cameras | ours |
+| scenes (`../scenes/`) | tables, objects, a sky, scene cameras | ours: listed in `../scenes/README.md` |
 
 ## Regenerating derived files
 

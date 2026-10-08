@@ -380,6 +380,7 @@ class ModelTest(unittest.TestCase):
         forward = -data.cam_xmat[self.model.camera("head").id].reshape(3, 3)[:, 2]
         self.assertAlmostEqual(math.degrees(math.asin(-forward[2])), 26.0, delta=0.5)  # 26 deg down
         self.assertGreater(forward[0], 0.85)                                           # robot's front is +x
+        self.assertEqual(self.model.cam_fovy[self.model.camera("head").id], 120.0)  # vendor spec (user manual §2.3)
         for camera, prefix in (("left_wrist", "lg"), ("right_wrist", "rg")):
             frame = data.cam_xmat[self.model.camera(camera).id].reshape(3, 3)
             tips = 0.5 * (data.body(f"{prefix}_link3").xipos + data.body(f"{prefix}_link6").xipos)

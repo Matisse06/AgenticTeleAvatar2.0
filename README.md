@@ -12,7 +12,8 @@
 A MuJoCo simulation of the TeleAvatar 2.0 robot: two 7-joint arms with parallel grippers, a 0.74 m lift carrying the
 torso, a head camera and two wrist cameras, and an omni-wheel base. The base is fixed by default, as in the vendor's
 simulator; a drivable base, which we added, is opt-in (`--mobile-base`). A ROS 2 simulator speaks the robot's joint
-API, so clients written for the real arms run against it unchanged.
+API, so clients written for the real arms run against it unchanged. Scenes (`scenes/`) put the robot in a world: the
+first is a table with a red and a green cube.
 
 ## Quick start
 
@@ -58,7 +59,10 @@ From the repository root, with the environment active (`source .venv/bin/activat
 | ... the base driving around a square | `python3 scripts/render_video.py --mobile-base --motion drive --output outputs/drive.mp4` |
 | ROS 2 simulator with the robot's arm API (`--viewer` to watch it) | `./model/run_sim.sh` |
 | The vendor's ROS client against it | `python3 mujoco/test_control.py --reordered-names` |
+| A scene: the robot at a table with two cubes (`scenes/README.md`; `--model` works in all the tools above) | `python3 model/play.py --model scenes/table_cubes.xml` |
+| ... with the drivable base (every scene has it) | `python3 model/play.py --model scenes/table_cubes.xml --mobile-base` |
 | Unit tests (22, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
+| Scene tests (17, about 8 s) | `python3 -m unittest discover -s scenes/tests -v` |
 
 `play.py` is MuJoCo's viewer with additions: it starts in the `home` pose, shows what the head and wrist cameras see,
 follows the robot, and with `--mobile-base` drives the base from the keyboard and turns the wheels to match. Backspace
@@ -105,14 +109,17 @@ textured meshes:
   online documentation) is listed in `model/README.md`, under "Where the values come from". If the simulation and
   the robot disagree, check there first.
 - Gains and the gripper coupling are nominal: the vendor doesn't publish them.
-- The cameras are simplified: each is a single undistorted (pinhole) camera with a nominal 58 degree field of view.
-  The real robot has stereo fisheye pairs (head 960 x 960 per eye, wrists 640 x 400), calibrated for each robot, so
-  simulated images don't look exactly like real ones. Account for that before training a policy for the real robot on
-  them.
+- The cameras are simplified: each is a single undistorted (pinhole) camera. The head's field of view is the real
+  one, 120 x 120 degrees (vendor user manual); render it square, as the robot's 960 x 960 head images (a 4:3 image
+  shows 133 degrees across). The wrists' is a nominal 58 degrees. The real robot has stereo fisheye pairs (head
+  960 x 960 per eye, wrists 640 x 400), calibrated for each robot, so simulated images don't look exactly like real
+  ones: a fisheye squeezes the edges of the view, a pinhole stretches them. Account for that before training a policy
+  for the real robot on them.
 
 **The base and wheels.** By default (`model/scene.xml`) the base is fixed to the floor and the wheels don't turn, as
 in the vendor's simulator. We added a drivable base ourselves, so for safety it is opt-in: `--mobile-base` in
-`play.py` and `render_video.py`, or load `model/scene_mobile.xml`. There the base moves kinematically: three
+`play.py` and `render_video.py`, or load `model/scene_mobile.xml` (for a scene, its twin `scenes/<name>_mobile.xml`,
+which `--mobile-base` picks). There the base moves kinematically: three
 world-frame joints (`base_x`, `base_y`, `base_yaw`) carry it, and their actuators take velocity commands and hold the
 reached pose at 0. The three omni wheels are hinges that `model/mobile_base.py` spins at the speed of rolling without
 slip; they don't touch the floor, so the base can't slip or tip. With three wheels 120 degrees apart, every move turns
@@ -123,6 +130,9 @@ interface, so the ROS simulator uses the fixed base.
 ## Repository
 
 - `model/`: the model, its tools and tests. `model/README.md` has the details.
+- `scenes/`: worlds for the robot (a table, objects, cameras), kept apart from the model: they attach
+  `model/robot.xml` unchanged, and their generated `_mobile` twins `model/robot_mobile.xml`. `scenes/README.md` says
+  how to use them and how to add one.
 - `mujoco/`: the vendor's original dual-arm simulator, kept as delivered.
 - `setup/`: environment, checks, and `unpack_assets.py`. `scripts/render_video.py`: videos and stills.
 - `CLAUDE.md`: cluster setup (FASRC), every check, and notes on rendering and the model.

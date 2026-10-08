@@ -1,0 +1,19 @@
+<mujoco>
+  <!-- The room every scene shares: model/scene.xml's floor (10 x 10 m at z = 0), lights and render settings, plus a
+       grey gradient sky, so that the top of the head camera's 120 deg view is not black. -->
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.6 0.6 0.6" specular="0.1 0.1 0.1"/>
+    <global offwidth="1920" offheight="1440"/>
+    <quality shadowsize="4096"/>
+  </visual>
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.58 0.6 0.63" rgb2="0.18 0.19 0.2" width="512" height="3072"/>
+    <texture name="ground_texture" type="2d" builtin="checker" width="256" height="256" rgb1="0.18 0.18 0.18" rgb2="0.24 0.24 0.24"/>
+    <material name="ground_material" texture="ground_texture" texrepeat="10 10"/>
+  </asset>
+  <worldbody>
+    <light name="key" pos="1.5 -1.5 3.2" dir="-0.4 0.4 -1" diffuse="0.75 0.75 0.75"/>
+    <light name="fill" pos="-1.5 1.2 2.8" dir="0.4 -0.3 -1" diffuse="0.25 0.25 0.25" castshadow="false"/>
+    <geom name="floor" type="plane" size="5 5 0.05" material="ground_material"/>
+  </worldbody>
+</mujoco>

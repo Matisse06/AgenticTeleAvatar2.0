@@ -4,10 +4,13 @@
   python3 model/play.py                # the base fixed, as in the vendor's simulator (model/scene.xml)
   python3 model/play.py --mobile-base  # the drivable base we added (model/scene_mobile.xml)
   python3 model/play.py --no-cameras   # without the camera insets
+  python3 model/play.py --model scenes/table_cubes.xml  # a scene: the robot at a table with two cubes
+  python3 model/play.py --model scenes/table_cubes.xml --mobile-base  # the same with the drivable base
 
 It needs a display (on the cluster, a Remote Desktop: see CLAUDE.md). It starts at the home keyframe and runs in real
 time, with the view following the robot (Esc frees it).
-- Insets (right): what the head and wrist cameras see, rendered like render_video.py's images.
+- Insets (right): what the head and wrist cameras see, rendered like render_video.py's images. The head's is square,
+  like the robot's head images, so it shows the camera's 120 x 120 deg; the wrists' are 4:3.
 - Control panel (right): a slider per actuator. Arms in rad; lift in m (0 is the top, positive lowers the torso);
   grippers in N m of motor torque, from -1.6 (closing) to +2.0 (opening), the range the robot's 0..1 command spans
   (model/gripper.py). With --mobile-base also the base's velocity in the world frame: base_x and
@@ -33,10 +36,12 @@ import mujoco.viewer
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from mobile_base import MobileBase
+from mobile_base import MobileBase, drivable_variant
 
 HERE = Path(__file__).resolve().parent
-INSETS = (("head", "head"), ("left_wrist", "left wrist"), ("right_wrist", "right wrist"))
+# (camera, label, square). The insets render at 4:3; a square one keeps the middle of the image. For the head that is
+# its 120 x 120 deg (the full 4:3 image spans 133 deg across), and it costs no second renderer (0.7 GB with Mesa).
+INSETS = (("head", "head", True), ("left_wrist", "left wrist", False), ("right_wrist", "right wrist", False))
 STEPS = np.array([0.1, 0.1, 0.25])  # forward, left (m/s) and turn (rad/s) change per key press
 KEYS = {  # GLFW key code -> direction of the change; None stops
     265: (1, 0, 0), 264: (-1, 0, 0), 263: (0, 0, 1), 262: (0, 0, -1),  # arrows up, down, left, right
@@ -58,15 +63,20 @@ def join_viewer_thread() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mobile-base", action="store_true",
-                        help="load the drivable-base variant (model/scene_mobile.xml), which we added; the vendor's "
-                             "simulator has a fixed base")
-    parser.add_argument("--model", type=Path, help="default: model/scene.xml, or scene_mobile.xml with --mobile-base")
+                        help="load the drivable-base variant, which we added (the vendor's simulator has a fixed "
+                             "base): model/scene_mobile.xml, or the --model file's <name>_mobile.xml")
+    parser.add_argument("--model", type=Path, help="a model or scene file (default: model/scene.xml)")
     parser.add_argument("--no-cameras", action="store_true", help="no camera insets")
-    parser.add_argument("--inset-width", type=int, default=192, help="pixels (the insets are 4:3)")
+    parser.add_argument("--inset-width", type=int, default=192,
+                        help="pixels (the wrists' insets are 4:3, the head's square and as tall)")
     parser.add_argument("--duration", type=float, default=0.0, help="seconds; 0 runs until the window is closed")
     args = parser.parse_args()
 
-    path = args.model or HERE / ("scene_mobile.xml" if args.mobile_base else "scene.xml")
+    path = args.model or HERE / "scene.xml"
+    if args.mobile_base:
+        path, source = drivable_variant(path), path
+        if not path.is_file():
+            parser.error(f"--mobile-base: {source} has no drivable-base variant ({path} does not exist)")
     model = mujoco.MjModel.from_xml_path(str(path.resolve()))
     data = mujoco.MjData(model)
     home = model.key("home").id
@@ -99,15 +109,19 @@ def main() -> None:
         font = ImageFont.load_default(size=max(10, args.inset_width // 14))
 
     def insets(viewport: mujoco.MjrRect) -> list:
-        images = []
-        for k, (camera, label) in enumerate(INSETS):
+        images, top = [], viewport.bottom + viewport.height
+        for camera, label, square in INSETS:
             renderer.update_scene(data, camera=camera)
-            image = Image.fromarray(renderer.render())
+            pixels = renderer.render()
+            if square:
+                left = (renderer.width - renderer.height) // 2
+                pixels = np.ascontiguousarray(pixels[:, left:left + renderer.height])
+            image = Image.fromarray(pixels)
             ImageDraw.Draw(image).text((6, 3), label, font=font, fill=(255, 255, 255), stroke_width=2,
                                        stroke_fill=(0, 0, 0))
-            rect = mujoco.MjrRect(viewport.left + viewport.width - renderer.width - MARGIN,
-                                  viewport.bottom + viewport.height - (k + 1) * (renderer.height + MARGIN),
-                                  renderer.width, renderer.height)
+            height, width = pixels.shape[:2]
+            top -= height + MARGIN
+            rect = mujoco.MjrRect(viewport.left + viewport.width - width - MARGIN, top, width, height)
             images.append((rect, np.asarray(image)))
         return images
 

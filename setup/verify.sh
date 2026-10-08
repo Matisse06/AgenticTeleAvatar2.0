@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs every check from the vendor README on the vendor model (mujoco/), then the same checks on the new model
-# (model/), plus CPU renders of both, inside the container; prints a PASS/FAIL summary. On a CPU node (not the login
-# node); the new model's video takes most of the time (about 5 minutes on 4 cores):
+# (model/), plus CPU renders of both, then the scenes' tests (scenes/) and a still of one, inside the container; prints
+# a PASS/FAIL summary. On a CPU node (not the login node); the new model's video takes most of the time (about 5
+# minutes on 4 cores):
 #   srun -p shared -c 4 --mem 8G -t 30 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh
 # Outputs (renders, simulator log) go to ~/TeleAvatar2.0/outputs/verify/.
 set -uo pipefail
@@ -68,6 +69,10 @@ run "new: vendor test_control.py --reordered-names" python3 mujoco/test_control.
 kill -TERM "$sim" 2>/dev/null; wait "$sim" 2>/dev/null
 run "new: render still" python3 scripts/render_video.py --output "$out/new_home.png"
 run "new: render video" python3 scripts/render_video.py --output "$out/new_wave.mp4"
+
+# The scenes (scenes/, see scenes/README.md): the robot at a table with objects.
+run "scenes: unit tests" python3 -m unittest discover -s scenes/tests -v
+run "scenes: render still" python3 scripts/render_video.py --model scenes/table_cubes.xml --output "$out/table_cubes.png"
 
 echo; echo "===== summary ($(date '+%F %T'))"
 printf '%s\n' "${results[@]}"

@@ -7,7 +7,8 @@
   ./sim.sh python3 scripts/render_video.py --mobile-base --motion drive --output outputs/drive.mp4
 
 The default model is the new one with its base fixed, as in the vendor's simulator (model/scene.xml); --mobile-base
-loads the drivable-base variant we added (model/scene_mobile.xml). Motions: 'wave' swings every arm joint
+loads the drivable-base variant we added (model/scene_mobile.xml, or with --model a scene's <name>_mobile.xml; 'drive'
+is meant for the open floor, so in a scene the robot may meet the furniture). Motions: 'wave' swings every arm joint
 sinusoidally around the home keyframe (clipped to the actuator ranges) and, on the new model, opens and closes the
 grippers; 'hold' commands the home keyframe, which shows how well the position actuators hold the arms against
 gravity; 'drive' (needs --mobile-base) drives the base forward, sideways and turning, around a square back to its
@@ -30,6 +31,7 @@ import numpy as np
 DEFAULT_MODEL = Path(__file__).resolve().parents[1] / "model" / "scene.xml"
 sys.path.insert(0, str(DEFAULT_MODEL.parent))
 import gripper  # noqa: E402  (model/gripper.py: the robot's gripper command -> motor torque)
+from mobile_base import drivable_variant  # noqa: E402  (model/scene.xml -> model/scene_mobile.xml, and scenes' twins)
 ARM_JOINT = re.compile(r"^(l_joint|r_joint)\d$|^arm[LR]\d_joint$")  # vendor model / new model
 # 'drive': (seconds, forward m/s, left m/s, turn rad/s) in the robot's frame. 0.6 m ahead, 0.6 m left, a quarter turn
 # left, then the same legs back (now sideways and reversing), and a quarter turn right: back at the start.
@@ -40,8 +42,10 @@ DRIVE = [(1.5, 0.4, 0, 0), (0.5, 0, 0, 0), (1.5, 0, 0.4, 0), (0.5, 0, 0, 0), (QU
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", type=Path, help="default: model/scene.xml, or scene_mobile.xml with --mobile-base")
-    parser.add_argument("--mobile-base", action="store_true", help="the drivable-base variant of the new model")
+    parser.add_argument("--model", type=Path, help="a model or scene file (default: model/scene.xml)")
+    parser.add_argument("--mobile-base", action="store_true",
+                        help="the drivable-base variant: model/scene_mobile.xml, or the --model file's "
+                             "<name>_mobile.xml")
     parser.add_argument("--output", type=Path, default=Path("teleavatar.mp4"), help=".mp4 video, or .png for a still")
     parser.add_argument("--motion", choices=("wave", "hold", "drive"), default="wave")
     parser.add_argument("--amplitude", type=float, default=0.3, help="wave amplitude per joint, rad")
@@ -60,7 +64,11 @@ def main() -> None:
                              "policy training or evaluation data")
     args = parser.parse_args()
 
-    path = args.model or DEFAULT_MODEL.with_name("scene_mobile.xml" if args.mobile_base else "scene.xml")
+    path = args.model or DEFAULT_MODEL
+    if args.mobile_base:
+        path, source = drivable_variant(path), path
+        if not path.is_file():
+            parser.error(f"--mobile-base: {source} has no drivable-base variant ({path} does not exist)")
     model = mujoco.MjModel.from_xml_path(str(path.resolve()))
     model.vis.global_.offwidth = max(model.vis.global_.offwidth, args.width)
     model.vis.global_.offheight = max(model.vis.global_.offheight, args.height)

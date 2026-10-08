@@ -1,0 +1,14 @@
+<mujoco>
+  <!-- The robot's physics options (model/robot.xml), for every scene: include this before attaching the robot.
+
+       Scenes attach the robot rather than include it. With <include>, MuJoCo pads the robot's 'home' keyframe with
+       zeros for the scene's free bodies, so resetting to 'home' moves every object to the world origin, inside the
+       base. <attach> fills them in at their poses in the scene instead. But <attach> does not bring the robot's
+       options along, hence this file. With conflict="error", MuJoCo refuses to load a scene whose options differ
+       from robot.xml's, and names the field.
+
+       Keep file paths out of this file: MuJoCo 3.14 resolves a "../" path in an included file wrongly when the scene
+       is opened by a relative path (scenes/x.xml), so each scene names model/robot.xml itself. -->
+  <compiler conflict="error"/>
+  <option timestep="0.002" integrator="implicitfast" cone="elliptic" impratio="10"/>
+</mujoco>
