@@ -292,8 +292,9 @@ compiled the same way.
   this workstation, 2026-10-02):
   - the first load in a process peaks at 3.7 GB and leaves 2.8 GB resident after the model is freed (MuJoCo's asset
     cache, 0.5 GB, and `malloc_trim` change little); each later load peaks about 3 GB above that
-  - the unit tests, with three copies, peak at 10.4 GB: more than the `--mem 8G` in the commands here (`verify.sh`'s
-    new-model section has not run on the cluster yet). The smoke test runs two processes (not measured).
+  - the unit tests, with three copies, peak at 10.4 GB, so `verify.sh` and interactive sessions ask for `--mem 16G`
+    (8G was too little; `verify.sh`'s new-model section has not run on the cluster yet). The smoke test runs two
+    processes (not measured). The vendor-model viewer check stays at 8G.
   - the scene tests peak at 6.2 GB, and stay near that as scenes are added: every check but the camera's compiles the
     scene without the robot's visual meshes (identical dynamics, 50 MB), and the camera check loads each full scene
     once and frees it. They peaked at 10.2 GB before.
@@ -316,10 +317,10 @@ partition was down for maintenance until 2026-10-02; `shared` works.
   3. `./sim.sh python3 setup/unpack_assets.py <archive>`
   4. `./sim.sh python3 model/convert.py`, which generates the textures. Until this has run, `scene.xml` does not load.
 - Check everything (vendor model, then the new one; roughly 10 minutes, most of it the new model's video):
-  `srun -p shared -c 4 --mem 8G -t 30 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh`. The live viewer:
+  `srun -p shared -c 4 --mem 16G -t 30 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh`. The live viewer:
   `srun -p shared -c 4 --mem 8G -t 15 bash ~/TeleAvatar2.0/setup/viewer_check.sh`.
 - Interactive work, with terminals on the same node (ROS discovery is localhost only):
-  `salloc -p shared -c 4 --mem 8G -t 2:00:00`, then in more terminals `srun --jobid <jobid> --overlap --pty bash`. In
+  `salloc -p shared -c 4 --mem 16G -t 2:00:00`, then in more terminals `srun --jobid <jobid> --overlap --pty bash`. In
   each terminal, `cd ~/TeleAvatar2.0 && ./sim.sh`, then:
   - new model: `./model/run_sim.sh` (`--viewer`, `--lift`, `--gripper`), `python3 model/smoke_test.py`, and the
     vendor's client against it: `python3 mujoco/test_control.py --reordered-names`
