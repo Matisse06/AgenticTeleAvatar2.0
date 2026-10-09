@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_URDF = HERE / "vendor" / "urdf" / "teleavatar_urdf_20260928.urdf"
+DEFAULT_URDF = HERE / "vendor" / "urdf" / "teleavatar_urdf_20260928-v2.urdf"  # meshes as in 20260928
 
 
 def visual_meshes(urdf: Path) -> list[Path]:

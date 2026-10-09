@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the MuJoCo model of TeleAvatar 2.0 from the vendor's 20260928 URDF and textured meshes, in two variants:
+"""Build the MuJoCo model of TeleAvatar 2.0 from the vendor's 20260928-v2 URDF and textured meshes, in two variants:
 model/robot.xml, the default, with the base fixed to the floor as in the vendor's simulator, and
 model/robot_mobile.xml, with the drivable base we added (BASE_JOINTS below), loaded by model/scene_mobile.xml.
 
@@ -28,7 +28,8 @@ import numpy as np
 from gripper import CLOSE_TORQUE, OPEN_TORQUE, torque as gripper_torque
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_URDF = HERE / "vendor" / "urdf" / "teleavatar_urdf_20260928.urdf"
+# 20260928-v2 (published 2026-10-08) is 20260928 with the 14 arm joints' limits replaced; nothing else changed.
+DEFAULT_URDF = HERE / "vendor" / "urdf" / "teleavatar_urdf_20260928-v2.urdf"
 DEFAULT_OUTPUT = HERE / "robot.xml"
 MOBILE_OUTPUT = HERE / "robot_mobile.xml"
 SCENE, MOBILE_SCENE = HERE / "scene.xml", HERE / "scene_mobile.xml"
@@ -36,8 +37,8 @@ COLLISION_DIR = HERE / "assets" / "collision"
 TEXTURE_DIR = HERE / "assets"  # textures_<size>/ is generated next to collision/
 
 # The ROS API (vendor simulator and real robot) names the arm joints l_joint1..7 / r_joint1..7. Their angles mean the
-# same as armL1..7_joint / armR1..7_joint in the 20260928 URDF: same zero pose, same axis directions (checked against
-# mujoco/urdf/urdf20260625 on 2026-10-01). The 20260922 URDF and the archive's own URDF have seven of them flipped.
+# same as armL1..7_joint / armR1..7_joint in the 20260928 URDFs (v2 too): same zero pose, same axis directions (checked
+# against mujoco/urdf/urdf20260625 on 2026-10-01). The 20260922 URDF and the archive's own URDF have seven flipped.
 API_TO_MODEL = {f"{side.lower()}_joint{i}": f"arm{side}{i}_joint" for side in "LR" for i in range(1, 8)}
 ARM_JOINTS = list(API_TO_MODEL.values())
 # Vendor home pose (mujoco/convert_urdf.py HOME, in API names).
@@ -46,6 +47,16 @@ API_HOME = {
     "l_joint5": 0.23, "l_joint6": -0.15, "l_joint7": 0.60,
     "r_joint1": -0.50, "r_joint2": -0.92, "r_joint3": 0.52, "r_joint4": -1.28,
     "r_joint5": 0.32, "r_joint6": 0.55, "r_joint7": -0.52,
+}
+# The robot's software joint limits (developer docs §4.13, the same as §4.0.4 and the vendor's openpi arm_config.yml):
+# the robot clips arm targets to them (§4.10). The v2 URDF's ranges equal them on joints 3 to 7 and are narrower on
+# joints 1 and 2 (l_joint1 from -1.2, r_joint1 to 1.2, joint 2 to 1.8 either way; the vendor gives no reason), so the
+# model never takes a target the robot would clip (a test checks).
+API_LIMITS = {
+    "l_joint1": (-1.8, 1.8), "l_joint2": (0.0, 1.9), "l_joint3": (-2.6, 1.3), "l_joint4": (0.25, 2.2),
+    "l_joint5": (-1.8, 1.8), "l_joint6": (-1.4, 1.4), "l_joint7": (-0.7, 0.7),
+    "r_joint1": (-1.8, 1.8), "r_joint2": (-1.9, 0.0), "r_joint3": (-1.3, 2.6), "r_joint4": (-2.2, -0.25),
+    "r_joint5": (-1.8, 1.8), "r_joint6": (-1.4, 1.4), "r_joint7": (-0.7, 0.7),
 }
 LIFT = "lift_carriage_joint"
 # NOMINAL: 0.136 m down from the top puts the shoulder joints 1.27 m above the floor, as in the old model.
@@ -85,11 +96,13 @@ BASE_TRAVEL = 4.5  # m from the start, either way: keeps the robot on scene.xml'
 # reactions barely move it, as wheel motors holding still would.
 BASE_KP, BASE_KV = 340000.0, 10800.0
 BASE_YAW_KP, BASE_YAW_KV = 17000.0, 545.0
-# Body pairs whose collision shapes overlap by design (found by sweeping the lift and 3000 random poses, 2026-10-01):
+# Body pairs whose collision shapes overlap by design (found by sweeping the lift and 3000 random poses, 2026-10-01;
+# model/sweep_contacts.py repeats the sweep, and re-checked every touching pair over v2's ranges on 2026-10-08):
 EXCLUDES = [
     ("base_link", "lift_carriage_link"),                         # the carriage runs inside the lift column
     ("armL5_link", "lg_base_link"), ("armR5_link", "rg_base_link"),  # wrist link 5 sits inside the gripper housing
-    # Elbow: the convex hulls touch from 140 deg of joint 4, the CAD parts only at the 146.5 deg hard stop (FCL).
+    # Elbow: the convex hulls touch from 140 deg of joint 4, the CAD parts only at the 146.5 deg hard stop (FCL). v2
+    # stops joint 4 at 126 deg, so this now matters only past the limit.
     ("armL3_link", "armL5_link"), ("armR3_link", "armR5_link"),
 ]
 # Cameras: (body, name, pos, quat, fovy). eye_Link is a ROS optical frame (z forward, x right, y down) and a MuJoCo

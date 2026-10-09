@@ -1,13 +1,12 @@
 # AgenticTeleAvatar2.0
 
-> **Known discrepancy, waiting for the vendor's answer (2026-10-01).** For joint 3 of both arms, the limits in the
-> vendor's newest URDF, which the simulator uses, disagree with the limits the real robot's software enforces
-> (vendor developer docs, §4.13). The left arm's joint 3 may turn from -85 to +180 degrees in the URDF, but from -149
-> to +74 degrees on the robot; the right arm is the mirror image. So in simulation joint 3 can reach angles the robot
-> refuses, and it stops short of some the robot allows. Until the vendor confirms which is right, keep joint 3 within
-> what both allow: left -1.48 to 1.30 rad (-85 to +74 degrees), right -1.30 to 1.48 rad. Joints 2 and 6 differ
-> slightly (the robot allows up to 0.2 rad more than the URDF). The simulated cameras are also simplified (see
-> [The model](#the-model)).
+> **Joint limits (2026-10-08).** The simulator uses the vendor's newest URDF, `teleavatar_urdf_20260928-v2`, whose
+> arm joint ranges lie inside the limits the real robot enforces (vendor developer docs, §4.13): equal on joints 3 to
+> 7, narrower on joints 1 and 2. Left joint 1 stops at -1.2 rad where the robot allows -1.8 (the right arm is the
+> mirror image), and joint 2 at 1.8 rad where the robot allows 1.9. Like the robot, the simulator clips arm targets to
+> its ranges, so it never reaches an angle the robot would clip, but it clips a few the robot reaches. Past about 1.72
+> rad, joint 2 presses the shoulder into the torso, in the vendor's CAD too. (The previous URDF had joint 3's range
+> mirrored; v2 fixed that.) The simulated cameras are also simplified (see [The model](#the-model)).
 
 A MuJoCo simulation of the TeleAvatar 2.0 robot: two 7-joint arms with parallel grippers, a 0.74 m lift carrying the
 torso, a head camera and two wrist cameras, and an omni-wheel base. The base is fixed by default, as in the vendor's
@@ -61,7 +60,7 @@ From the repository root, with the environment active (`source .venv/bin/activat
 | The vendor's ROS client against it | `python3 mujoco/test_control.py --reordered-names` |
 | A scene: the robot at a table with two cubes (`scenes/README.md`; `--model` works in all the tools above) | `python3 model/play.py --model scenes/table_cubes.xml` |
 | ... with the drivable base (every scene has it) | `python3 model/play.py --model scenes/table_cubes.xml --mobile-base` |
-| Unit tests (22, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
+| Unit tests (23, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
 | Scene tests (17, about 8 s) | `python3 -m unittest discover -s scenes/tests -v` |
 
 `play.py` is MuJoCo's viewer with additions: it starts in the `home` pose, shows what the head and wrist cameras see,
@@ -96,7 +95,7 @@ image = renderer.render()                       # what the left wrist camera see
 
 ## The model
 
-`model/convert.py` builds it from the vendor's newest URDF (`model/vendor/urdf/teleavatar_urdf_20260928.urdf`) and
+`model/convert.py` builds it from the vendor's newest URDF (`model/vendor/urdf/teleavatar_urdf_20260928-v2.urdf`) and
 textured meshes:
 - From the vendor: kinematics, masses, inertias, joint ranges and torque limits (URDF); arm joint damping and
   friction, measured on the robot.

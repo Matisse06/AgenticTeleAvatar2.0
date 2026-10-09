@@ -82,7 +82,7 @@ class ModelTest(unittest.TestCase):
         cls.before = {path: path.read_bytes() if path.is_file() else b"" for path in cls.generated}
         convert.build_all()
         cls.after = {path: path.read_bytes() for path in cls.generated}
-        # Three loaded copies at most (about 831 MB each), to fit the cluster's 8 GB jobs.
+        # Three loaded copies at most (about 831 MB each): loading them peaks at about 10 GB (CLAUDE.md, Environment).
         cls.robot = mujoco.MjModel.from_xml_path(str(convert.DEFAULT_OUTPUT))
         cls.model = mujoco.MjModel.from_xml_path(str(convert.SCENE))          # the default: the base fixed
         cls.mobile = mujoco.MjModel.from_xml_path(str(convert.MOBILE_SCENE))  # the drivable base
@@ -165,6 +165,20 @@ class ModelTest(unittest.TestCase):
         self.assertEqual(names[:14], [name.replace("_joint", "") for name in convert.ARM_JOINTS])
         # The drivable variant adds the base's three after them; see test_base_limits_follow_the_wheel_motors.
         self.assertEqual([self.mobile.actuator(i).name for i in range(self.mobile.nu)], names + BASE)
+
+    def test_arm_ranges_lie_within_the_robots_software_limits(self):
+        """The robot clips arm targets to its software limits (developer docs §4.13). The model's ranges (v2 URDF) lie
+        inside them, so a target the model accepts is never one the robot would clip."""
+        # §4.13 (= the vendor's openpi arm_config.yml) in their own layout: per arm, the lower and the upper array
+        section_4_13 = {"l": ([-1.8, 0.0, -2.6, 0.25, -1.8, -1.4, -0.7], [1.8, 1.9, 1.3, 2.2, 1.8, 1.4, 0.7]),
+                        "r": ([-1.8, -1.9, -1.3, -2.2, -1.8, -1.4, -0.7], [1.8, 0.0, 2.6, -0.25, 1.8, 1.4, 0.7])}
+        for side, (lower, upper) in section_4_13.items():
+            self.assertEqual([convert.API_LIMITS[f"{side}_joint{i}"] for i in range(1, 8)], list(zip(lower, upper)))
+        for api, joint in convert.API_TO_MODEL.items():
+            low, high = convert.API_LIMITS[api]
+            mine = self.model.joint(joint).range
+            self.assertTrue(low <= mine[0] < mine[1] <= high, f"{joint} {list(mine)} outside {api} [{low}, {high}]")
+            np.testing.assert_array_equal(self.model.actuator(joint.replace("_joint", "")).ctrlrange, mine)
 
     def test_the_default_base_is_fixed(self):
         """As in the vendor's simulator: base_link hangs on the world with no joint, and the wheels are welded."""

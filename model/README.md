@@ -1,6 +1,6 @@
-# TeleAvatar 2.0: whole-robot MuJoCo model (URDF 20260928)
+# TeleAvatar 2.0: whole-robot MuJoCo model (URDF 20260928-v2)
 
-The whole robot, built from the vendor's newest description (`vendor/urdf/teleavatar_urdf_20260928.urdf`) and their
+The whole robot, built from the vendor's newest description (`vendor/urdf/teleavatar_urdf_20260928-v2.urdf`) and their
 textured meshes:
 - an omni-wheel base: fixed to the floor by default, as in the vendor's simulator, and drivable in an opt-in variant
   that we added (`scene_mobile.xml`)
@@ -21,7 +21,7 @@ The meshes and textures are not in git (590 MB; GitHub refuses files over 100 MB
 pip install -r setup/requirements.lock py7zr                    # on the cluster: ./sim.sh uv pip install py7zr
 python3 setup/unpack_assets.py urdf_20260825_textured9.21.7z    # -> model/vendor/{visual,collision}/, checksummed
 python3 model/convert.py                                        # -> robot.xml, robot_mobile.xml, textures_1024/
-python3 -m unittest discover -s model/tests -v                  # 22 tests, about 10 s
+python3 -m unittest discover -s model/tests -v                  # 23 tests, about 10 s
 ```
 
 Download the archive from the robot's documentation page,
@@ -41,8 +41,9 @@ meshes, so any of them works.
   - `left_gripper`, `right_gripper`: motor torque in N m, -1.6 (closing) to +2.0 (opening). On the robot a 0 to 1
     command sets that torque; `gripper.torque(command)` (`model/gripper.py`) converts it: 0 opens fully, 0.6 to 1
     grasps
-- Joint 3's range in the URDF disagrees with the real robot's software limits; until the vendor answers, keep it
-  within both (see the note at the top of `../README.md`).
+- The arm joint ranges lie inside the real robot's software limits (developer docs §4.13): equal on joints 3 to 7,
+  narrower on joints 1 and 2 (the note at the top of `../README.md`). Joint 2 stops at about 1.72 rad, where the
+  shoulder meets the torso.
 - The base is fixed and the wheels are welded by default, as in the vendor's simulator. The drivable base is ours,
   so it is opt-in: `scene_mobile.xml` (`robot_mobile.xml`), loaded by `--mobile-base` in `play.py` and
   `render_video.py` (with `--model`, that file's `_mobile` variant: every scene in `../scenes/` has one). It adds three
@@ -88,8 +89,9 @@ python3 model/smoke_test.py                          # starts and stops its own 
 python3 mujoco/test_control.py --reordered-names     # the vendor's client, with ./model/run_sim.sh running
 ```
 
-The vendor's `test_control.py` reads its joint ranges from the vendor model (its `--model` default), so it clips its
-targets to the old, narrower ranges. That is harmless for its default joints 1 and 4.
+The vendor's `test_control.py` clips its targets to the vendor model's ranges (its `--model` default). They equal
+this model's except joint 1 (+-1.8, wider than this model's -1.2 / 1.2 bound, so this simulator clips the rest) and
+joint 7 (+-0.68, narrower). That is harmless for its default, joints 1 and 4 moved 0.12 rad from home.
 
 ## Converter options (`model/convert.py`)
 
@@ -113,9 +115,9 @@ and facts taken from the vendor's online documentation. If the simulation behave
 look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has the details.
 
 **From the vendor's files**
-- URDF (`teleavatar_urdf_20260928.urdf`): kinematics, masses, inertias, joint ranges (but see joint 3 in
-  `../README.md`), torque limits, the wheel layout and the wheel motors' torque, camera mounts (`eye_Link`,
-  `lg_link8`, `rg_link8`) and the reference frames (sites)
+- URDF (`teleavatar_urdf_20260928-v2.urdf`, published 2026-10-08; it differs from 20260928 only in the arm joint
+  limits): kinematics, masses, inertias, joint ranges, torque limits, the wheel layout and the wheel motors' torque,
+  camera mounts (`eye_Link`, `lg_link8`, `rg_link8`) and the reference frames (sites)
 - the archive `urdf_20260825_textured9.21.7z`: visual and collision meshes, colour textures, and `manifest.json`
   (the gripper input joint and its range, 0 to 1 rad)
 - the damping document (`vendor/各关节阻尼参数.docx`): arm damping and friction measured on the robot (table 2), and
@@ -127,7 +129,7 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 
 | fact | used in the model? |
 |---|---|
-| the robot's software joint limits (§4.13, also their openpi `arm_config.yml`) | no, the URDF's are used; joint 3 disagrees (see `../README.md`) |
+| the robot's software joint limits (§4.13, also their openpi `arm_config.yml`), to which the robot clips arm targets | as a check: the URDF's ranges lie inside them (`API_LIMITS` in `convert.py`, tested); joints 1 and 2 are narrower in the URDF |
 | the gripper takes a force command from 0 to 1: +2.0 N m at 0 (opening), 0 at 0.1, -1.6 N m at 1 (closing) (§4.4.1); the URDF's 2 N m effort limit matches | yes: the grippers are torque motors, and `gripper.py` applies this curve |
 | the gripper is closed at motor angle 0 and opens as it grows (§4.4.2) | yes, the same direction |
 | the head cameras' centre lies between their two eyes, looking 26 deg down (appendix A.3) | yes, it is the URDF's `eye_Link`, where the `head` camera sits |
@@ -143,6 +145,7 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 | gripper drive | the documented torque, applied to the input joint; armature 0.001 | assumed: the input joint is the motor's output angle (the docs' q, §4.4.2) |
 | gripper stops and linkage | MuJoCo time constant 5 ms (the default is 20 ms) | numerical: with the default, the documented torques stretch them by up to 0.035 rad |
 | gripper speed | about 0.1 s for a full stroke (the vendor's damping with the documented torques) | known difference: the URDF lists 2 rad/s (about 0.5 s per stroke), which MuJoCo does not enforce |
+| joint 2 toward the body | stops at 1.716 rad (left +, right -), where the shoulder's collision shapes meet the torso's; the CAD meshes touch at 1.72 to 1.73 | known difference: the URDF allows 1.8 and the robot's software 1.9 (a question for the vendor) |
 | gripper fingers | finger angle = -0.98 x input | inferred from the joint ranges: the URDF does not link the input to the fingers |
 | gripper linkage armature | 0.0002 | numerical stability of the 10 g linkage bars |
 | arm joint 4 damping | 0 | the measured value is negative |
@@ -153,7 +156,7 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 | textures | scaled to 1024 px (the vendor's are 2048) | memory; `--texture-size 0` uses the originals |
 | base height | axles 89.7 mm up | measured on the wheel meshes |
 | collision shapes | 323 convex pieces (CoACD) | the raw meshes cannot be used (see below) |
-| contact exclusions | 63 pairs (66 with the drivable base) | from sweeping the lift and 3000 random poses |
+| contact exclusions | 63 pairs (66 with the drivable base) | from sweeping the lift and 3000 random poses; `sweep_contacts.py` re-checks them (over v2's ranges on 2026-10-08) |
 | simulation settings | timestep 2 ms, `implicitfast`, elliptic friction cones, `impratio` 10 | MuJoCo's advice for grasping |
 | drivable base (`robot_mobile.xml` only) | kinematic joints and gains, limits of 1 m/s and 1.5 rad/s, a 1 m/s^2 ramp (`mobile_base.py`), 4.5 m of travel, wheels turned to match | all ours |
 | scene (`scene.xml`) | floor, lights, three scene cameras | ours |
@@ -165,5 +168,9 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
   `trimesh` and `fast-simplification`, and takes about 2 minutes. MuJoCo reads at most 200k faces per STL, and the
   vendor's chassis has 472k, so the raw STLs cannot be used.
 - `assets/visual_<N>/` (not tracked): from `build_visual_lite.py`, which needs `pymeshlab`.
+- The contact exclusions in `convert.py`: `sweep_contacts.py` lists the body pairs that touch in random poses (5 to
+  10 s for 10000) or in one pose (`--at joint=value`); `--cad` also measures the CAD gap at each pair's deepest
+  overlap, or with `--cad-poses N` at up to N of its poses (about a minute more; needs `scipy` and `trimesh`).
+  CLAUDE.md has the 2026-10-08 results (`--poses 10000 --seed 7`).
 - `assets/textures_<N>/` (not tracked), and `robot.xml`, `robot_mobile.xml` and `scene_mobile.xml` (tracked): from
   `convert.py`. The tests rebuild the three tracked files and fail if that changed them.

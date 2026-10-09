@@ -73,7 +73,10 @@ def check(label: str, condition: bool, detail="") -> None:
 
 def main() -> int:
     model = mujoco.MjModel.from_xml_path(str(HERE / "scene.xml"))
-    joint2_upper = {side: model.joint(model_joint(JOINT_NAMES[side][1])).range[1] for side in SIDES}
+    # Joint 2 swings the arm away from the body toward 0, the left arm's lower limit and the right arm's upper one. (At
+    # the other limit, 1.8 either way, the shoulder meets the torso at about 1.72 rad and stops short of it.)
+    joint2_limit = {side: model.joint(model_joint(JOINT_NAMES[side][1])).range[0 if side == "left" else 1]
+                    for side in SIDES}
     env = dict(os.environ, SIM_ROS_DOMAIN_ID=DOMAIN)
     process = subprocess.Popen([str(HERE / "run_sim.sh")], cwd=HERE, env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, start_new_session=True)
@@ -97,14 +100,15 @@ def main() -> int:
         check("named command reorder", wait_until(probe, converged, 2, drive),
               repr({side: list(probe.states[side].position) for side in SIDES}))
 
-        # An out-of-range joint 2 command is clipped to the control range: the joint settles at its upper limit (the
-        # right arm swings 2.6 rad, up overhead). Waiting until it is at rest also makes the PAUSE check below fair.
-        clipped = {side: [*targets[side][:1], 99.0, *targets[side][2:]] for side in SIDES}
-        at_limit = lambda: all(probe.states[side].position[1] > joint2_upper[side] - 0.02
-                               and abs(probe.states[side].velocity[1]) < 0.05 for side in SIDES)
+        # An out-of-range joint 2 command is clipped to the control range: the joint settles at its limit, 0 (from home,
+        # 1.16 rad for the left arm and 0.92 rad for the right). Waiting until it is at rest also makes the PAUSE check
+        # below fair.
+        clipped = {side: [*targets[side][:1], -99.0 if side == "left" else 99.0, *targets[side][2:]] for side in SIDES}
+        reached = lambda side: (joint2_limit[side] - probe.states[side].position[1]) * (1 if side == "right" else -1)
+        at_limit = lambda: all(reached(side) < 0.02 and abs(probe.states[side].velocity[1]) < 0.05 for side in SIDES)
         check("ctrlrange clipping",
               wait_until(probe, at_limit, 8, lambda: (probe.publish_enable(True), probe.publish_targets(clipped))),
-              repr({side: (probe.states[side].position[1], float(joint2_upper[side])) for side in SIDES}))
+              repr({side: (probe.states[side].position[1], float(joint2_limit[side])) for side in SIDES}))
 
         probe.publish_enable(False)
         check("disable to PAUSE", wait_until(probe, lambda: probe.fsm[-1] == 0, 2))

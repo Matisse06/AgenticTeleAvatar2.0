@@ -94,8 +94,8 @@ assumptions:
   side faces, never from above.
 - A level gripper can't grasp a cube on the table: its housing reaches 4.7 to 6.1 cm below the finger line and would
   hit the top. Pitched 15 to 30 deg down, it clears.
-- Joint limits: the URDF's ranges intersected with the robot's software limits (the vendor's openpi
-  `arm_config.yml`), so joint 3 stays inside the overlap from `../README.md`.
+- Joint limits: then, the 0928 URDF's ranges intersected with the robot's software limits (the vendor's openpi
+  `arm_config.yml`); since 2026-10-08, the v2 URDF's, which the model uses (they lie inside the software limits).
 
 Its results, with the robot at `home` (lift 0.136 m, shoulders 1.27 m up, 0.52 m above the top):
 - Each arm grasps over x 0.30 to 0.55 m (0.60 m at the sides), from its own side to just past the centre line. Both
@@ -106,10 +106,27 @@ Its results, with the robot at `home` (lift 0.136 m, shoulders 1.27 m up, 0.52 m
   arms, as a 0.80 to 0.85 m table. Lower still, the joints run out of margin. Straight-down grasps would come within
   about 0.1 rad of a joint limit, one more reason for side grasps.
 - Picks, run in the scene: each arm picks either cube, pitched 30 deg down, and the lift raises it 10 cm (the cube
-  rises 99 of 100 mm, the other cube does not move). The cube on the arm's own side is approached straight ahead,
-  the other with the approach turned 30 to 45 deg inward; the jaws turn the cube square as they close. Pitched only
-  15 deg, the far grasps knock the other cube or let theirs slip. Grasp and motion code is the task's job, still to
-  come.
+  rises 99 of 100 mm, the other cube does not move; the jaw opening was not recorded, and fully open the far
+  approaches touch the other cube, see the re-check below). The cube on the arm's own side is approached straight
+  ahead, the other with the approach turned 30 to 45 deg inward; the jaws turn the cube square as they close. Pitched
+  only 15 deg, the far grasps knock the other cube or let theirs slip. Grasp and motion code is the task's job, still
+  to come.
+
+Re-checked on 2026-10-08 under the v2 limits (scratch scripts again: IK on the grasp point, the pre-grasp 6 cm back
+along the approach and the cube lifted 10 cm, with the wrist camera on top):
+- Every pick above stays feasible, at least 0.14 rad from every joint limit (0.29 with the best approach direction).
+  v2's narrower joint 1 never limits a pick; its wider joint 3 adds margin (better in 78 of 96 cases, worse in none).
+  In these picks joint 4 binds, or joint 7 or 6, always at the lifted pose; over the band below it is mostly joint 4
+  at the lifted pose, then joint 2 at the grasp.
+- Both arms reach, with 0.10 rad to spare and touching neither the table nor the robot itself: |y| up to 0.20 m at x
+  0.325 to 0.35 m (at x 0.30 m the forearm meets the torso in between, which leaves 0.10 rad only on the centre line
+  and at |y| 0.175 to 0.20 m), 0.175 m at 0.375 to 0.40 m, 0.15 m at 0.425 to 0.45 m, 0.125 m at 0.475 m, 0.10 m at
+  0.50 m, 0.05 m at 0.55 m. With 0.25 rad to spare: 0.125 m at x 0.40 to 0.425 m, 0.10 m at 0.45 to 0.475 m,
+  0.075 m at 0.50 m, 0.05 m at 0.525 m. The cubes keep 0.25 rad for both arms.
+- Picks run in the scene with v2's limits held in all 16 tries (each arm picking its own cube straight ahead and the
+  far one turned 15 to 45 deg inward, lifted by the arm or by the torso lift; the cube rose 98 of 100 mm). With the
+  jaws fully open (8.66 cm), the far cube's 30 and 45 deg approaches graze the other cube by 2 mm and can knock it
+  7 mm; opening the jaws only to 6 cm avoids that.
 
 ## Where the values come from
 
@@ -119,7 +136,7 @@ the reach study used (above). If the robot behaves differently in a scene than i
 | what | value | status |
 |---|---|---|
 | table | top at 0.75 m, 0.6 x 1.0 m, 3 cm thick; four 4 x 4 cm legs; front edge at x 0.28 m (the base's front is at 0.243 m); top rgba 0.78 0.74 0.68, legs 0.35 0.35 0.38 | chosen: a standard table height; the edge as close as clears the base; a light top, so the cubes stand out |
-| cubes | 4 cm, 64 g, red (rgba 0.85 0.1 0.1) and green (0.1 0.65 0.2) | chosen: the size of ManiSkill's StackCube-v1 cubes (`cube_half_size` 0.02, also red and green); the open jaws (8.65 cm) leave 2.3 cm either side. 64 g is water's density, MuJoCo's default |
+| cubes | 4 cm, 64 g, red (rgba 0.85 0.1 0.1) and green (0.1 0.65 0.2) | chosen: the size of ManiSkill's StackCube-v1 cubes (`cube_half_size` 0.02, also red and green); the open jaws (8.66 cm) leave 2.3 cm either side. 64 g is water's density, MuJoCo's default |
 | cube positions | red (0.40, +0.05), green (0.40, -0.05), resting on the top | chosen from the reach study above |
 | contacts | MuJoCo's defaults for the table and cubes (friction 1, condim 3) | default; the side-grasp picks above work with them |
 | room (`common/room.xml`) | `model/scene.xml`'s floor and lights; a sky shading from rgb 0.58 0.6 0.63 overhead to 0.18 0.19 0.2 below | the sky is ours, so the top of the head camera's 120 deg view is not black |

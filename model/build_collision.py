@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_URDF = HERE / "vendor" / "urdf" / "teleavatar_urdf_20260928.urdf"
+DEFAULT_URDF = HERE / "vendor" / "urdf" / "teleavatar_urdf_20260928-v2.urdf"  # meshes as in 20260928
 OUT = HERE / "assets" / "collision"
 PARAMS = {"target_faces": 40000, "threshold": 0.05, "max_convex_hull": 16, "max_ch_vertex": 128,
           "resolution": 2000, "seed": 0,
