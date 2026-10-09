@@ -539,6 +539,8 @@
             <geom name="eye_Link_visual" class="visual" mesh="eye_Link_visual" material="eye_Link_None" pos="0 0 0" quat="1 0 0 0" />
             <geom name="eye_Link_collision_0" class="collision" mesh="eye_Link_collision_0" pos="0 0 0" quat="1 0 0 0" />
             <camera name="head" pos="0 0 0" quat="0 1 0 0" fovy="120" />
+            <camera name="head_left_eye" pos="-0.0325 0 0" quat="0 1 0 0" fovy="120" />
+            <camera name="head_right_eye" pos="0.0325 0 0" quat="0 1 0 0" fovy="120" />
           </body>
           <body name="armL1_link" pos="-0.1005 0.0002 0" quat="0.707106781187 0 0.707106781187 0" gravcomp="1">
             <joint name="armL1_joint" type="hinge" axis="0 0 1" range="-1.2 1.8" damping="0.165" frictionloss="0.562" armature="0.02" actuatorfrcrange="-40 40" actuatorgravcomp="true" />
@@ -753,6 +755,8 @@
                           <geom name="lg_link8_visual" class="visual" mesh="lg_link8_visual" material="lg_link8_None" pos="0 0 0" quat="1 0 0 0" />
                           <geom name="lg_link8_collision_0" class="collision" mesh="lg_link8_collision_0" pos="0 0 0" quat="1 0 0 0" />
                           <camera name="left_wrist" pos="0 -0.0008 0.0414" quat="0 0 1 0" fovy="58" />
+                          <camera name="left_wrist_left_eye" pos="0.025 -0.0008 0.0414" quat="0 0 1 0" fovy="58" />
+                          <camera name="left_wrist_right_eye" pos="-0.025 -0.0008 0.0414" quat="0 0 1 0" fovy="58" />
                         </body>
                       </body>
                     </body>
@@ -974,6 +978,8 @@
                           <geom name="rg_link8_visual" class="visual" mesh="rg_link8_visual" material="rg_link8_None" pos="0 0 0" quat="1 0 0 0" />
                           <geom name="rg_link8_collision_0" class="collision" mesh="rg_link8_collision_0" pos="0 0 0" quat="1 0 0 0" />
                           <camera name="right_wrist" pos="0 -0.0008 0.0414" quat="0 0 1 0" fovy="58" />
+                          <camera name="right_wrist_left_eye" pos="0.025 -0.0008 0.0414" quat="0 0 1 0" fovy="58" />
+                          <camera name="right_wrist_right_eye" pos="-0.025 -0.0008 0.0414" quat="0 0 1 0" fovy="58" />
                         </body>
                       </body>
                     </body>

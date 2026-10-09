@@ -105,17 +105,25 @@ EXCLUDES = [
     # stops joint 4 at 126 deg, so this now matters only past the limit.
     ("armL3_link", "armL5_link"), ("armR3_link", "armR5_link"),
 ]
-# Cameras: (body, name, pos, quat, fovy). eye_Link is a ROS optical frame (z forward, x right, y down) and a MuJoCo
-# camera looks along -z with y up, hence the 180 deg turn about x. The wrist cameras (lg_link8 / rg_link8: a 71 x 25 x
-# 42 mm block, two lenses on its +z face, which looks at the fingertips) sit at that face's centre and are turned 180
-# deg about y, so the fingers are at the bottom of the image (ASSUMED orientation). Fields of view: the head's is the
-# vendor's spec, 120 x 120 deg per eye (user manual §2.3; a square image gives it, as the robot's 960 x 960 eyes), the
-# wrists' are NOMINAL. All are pinholes until the cameras' intrinsics are known (MJCF focalpixel / principalpixel /
-# sensorsize then replace fovy, see CLAUDE.md).
+# Cameras: (body, name, pos, quat, fovy). Each of the robot's three stereo pairs gets a camera at its centre and one at
+# each eye. eye_Link is a ROS optical frame (z forward, x right, y down) and a MuJoCo camera looks along -z with y up,
+# hence the 180 deg turn about x. The wrist cameras (lg_link8 / rg_link8: a 71 x 25 x 42 mm block, two lenses on its
+# +z face, which looks at the fingertips) sit at that face's centre and are turned 180 deg about y, so the fingers are
+# at the bottom of the image (ASSUMED orientation; consistent with the vendor's choice of each wrist's inner eye,
+# see CLAUDE.md). The eyes sit half the vendor's stereo baseline (65 mm head, 50 mm wrists; their email of 2026-10-08)
+# either side of the centre, along the image's x axis (the CAD's lens rings: centred 65.0 and 50.0 mm apart along the
+# same axis). The fovy is for plain pinhole renders only: the head's is the vendor's 120 deg (user manual §2.3), the
+# wrists' a NOMINAL 58. What the real eyes see, through their fisheye lenses, model/cameras.py renders.
 CAMERAS = [
     ("eye_Link", "head", (0, 0, 0), (0, 1, 0, 0), 120),
+    ("eye_Link", "head_left_eye", (-0.0325, 0, 0), (0, 1, 0, 0), 120),
+    ("eye_Link", "head_right_eye", (0.0325, 0, 0), (0, 1, 0, 0), 120),
     ("lg_link8", "left_wrist", (0, -0.0008, 0.0414), (0, 0, 1, 0), 58),
+    ("lg_link8", "left_wrist_left_eye", (0.025, -0.0008, 0.0414), (0, 0, 1, 0), 58),
+    ("lg_link8", "left_wrist_right_eye", (-0.025, -0.0008, 0.0414), (0, 0, 1, 0), 58),
     ("rg_link8", "right_wrist", (0, -0.0008, 0.0414), (0, 0, 1, 0), 58),
+    ("rg_link8", "right_wrist_left_eye", (0.025, -0.0008, 0.0414), (0, 0, 1, 0), 58),
+    ("rg_link8", "right_wrist_right_eye", (-0.025, -0.0008, 0.0414), (0, 0, 1, 0), 58),
 ]
 
 # 各关节阻尼参数.docx ("damping parameters of each joint"): viscous damping (N m s/rad) and Coulomb friction (N m) per

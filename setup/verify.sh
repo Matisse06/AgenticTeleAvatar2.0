@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs every check from the vendor README on the vendor model (mujoco/), then the same checks on the new model
-# (model/), plus CPU renders of both, then the scenes' tests (scenes/) and a still of one, inside the container; prints
-# a PASS/FAIL summary. On a CPU node (not the login node); the new model's video takes most of the time (about 5
-# minutes on 4 cores):
+# (model/), plus CPU renders of both, then the scenes' tests (scenes/) and a still of one, then the tasks' tests
+# (tasks/) and the scripted expert on one layout, inside the container; prints a PASS/FAIL summary. On a CPU node (not
+# the login node); the new model's video takes most of the time (about 5 minutes on 4 cores):
 #   srun -p shared -c 4 --mem 16G -t 30 ~/TeleAvatar2.0/sim.sh bash ~/TeleAvatar2.0/setup/verify.sh
 # Outputs (renders, simulator log) go to ~/TeleAvatar2.0/outputs/verify/.
 set -uo pipefail
@@ -73,6 +73,14 @@ run "new: render video" python3 scripts/render_video.py --output "$out/new_wave.
 # The scenes (scenes/, see scenes/README.md): the robot at a table with objects.
 run "scenes: unit tests" python3 -m unittest discover -s scenes/tests -v
 run "scenes: render still" python3 scripts/render_video.py --model scenes/table_cubes.xml --output "$out/table_cubes.png"
+run "scenes: an eye's still" python3 scripts/render_video.py --model scenes/table_cubes.xml --camera head_left_eye \
+  --output "$out/table_cubes_head_left_eye.png"
+
+# The tasks (tasks/, see tasks/README.md): stacking, done by the scripted expert.
+run "tasks: unit tests" python3 -m unittest discover -s tasks/tests -v
+run "tasks: expert run" python3 tasks/run.py --policy expert --seeds 0 --out "$out/tasks_expert"
+run "tasks: expert stacked the cubes" python3 -c \
+  "import json, sys; sys.exit(json.load(open('$out/tasks_expert/results.json'))['summary']['successes'] != 1)"
 
 echo; echo "===== summary ($(date '+%F %T'))"
 printf '%s\n' "${results[@]}"

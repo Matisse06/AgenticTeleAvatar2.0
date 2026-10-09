@@ -19,9 +19,11 @@ import numpy as np
 HERE = Path(__file__).resolve().parents[1]
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import cameras  # noqa: E402
 import convert  # noqa: E402
 import gripper  # noqa: E402
 import mobile_base  # noqa: E402
+import sweep_contacts  # noqa: E402
 
 BASE = [name for name, _, _ in convert.BASE_JOINTS]
 VENDOR_URDF = ROOT / "mujoco" / "urdf" / "urdf20260625" / "urdf20260625.urdf"
@@ -111,7 +113,8 @@ class ModelTest(unittest.TestCase):
         mobile = self.mobile
         self.assertEqual((mobile.nq, mobile.nv, mobile.nu, mobile.na, mobile.neq), (39, 39, 20, 3, 16))
         self.assertEqual([self.robot.camera(i).name for i in range(self.robot.ncam)],
-                         ["head", "left_wrist", "right_wrist"])
+                         [f"{pair}{eye}" for pair in ("head", "left_wrist", "right_wrist")
+                          for eye in ("", "_left_eye", "_right_eye")])
         for model in (self.robot, self.mobile):
             self.assertAlmostEqual(float(model.body_mass.sum()), 85.771, places=2)
 
@@ -400,6 +403,97 @@ class ModelTest(unittest.TestCase):
             tips = 0.5 * (data.body(f"{prefix}_link3").xipos + data.body(f"{prefix}_link6").xipos)
             to_tips = tips - data.cam_xpos[self.model.camera(camera).id]
             self.assertGreater(float(-frame[:, 2] @ to_tips / np.linalg.norm(to_tips)), 0.9, camera)
+
+    def test_eye_cameras_sit_on_the_stereo_baselines(self):
+        """Each pair's eyes: the vendor's baseline apart (65 mm head, 50 mm wrists) along the pair's image x axis,
+        either side of its centre camera, looking the same way. The head's left eye is on the robot's left, and the vendor
+        policy's wrist eyes (cameras.POLICY_EYES) are the inner ones, nearer the robot's middle."""
+        data = self.home_data()
+        position = lambda name: data.cam_xpos[self.model.camera(name).id]
+        for pair, baseline in (("head", 0.065), ("left_wrist", 0.050), ("right_wrist", 0.050)):
+            axes = data.cam_xmat[self.model.camera(pair).id].reshape(3, 3)
+            left, right = position(f"{pair}_left_eye"), position(f"{pair}_right_eye")
+            np.testing.assert_allclose(right - left, baseline * axes[:, 0], atol=1e-9)  # image x: right
+            np.testing.assert_allclose(0.5 * (left + right), position(pair), atol=1e-9)
+            for eye in ("left", "right"):
+                np.testing.assert_allclose(data.cam_xmat[self.model.camera(f"{pair}_{eye}_eye").id].reshape(3, 3), axes,
+                                           atol=1e-12)
+        self.assertGreater(position("head_left_eye")[1], position("head_right_eye")[1])
+        for chosen, other in (("left_wrist_right_eye", "left_wrist_left_eye"),
+                              ("right_wrist_left_eye", "right_wrist_right_eye")):
+            self.assertIn(chosen, cameras.POLICY_EYES.values())
+            self.assertLess(abs(position(chosen)[1]), abs(position(other)[1]), chosen)
+
+    def test_fisheye_lenses(self):
+        # the vendor's head calibration spans 117.9 x 118.0 deg (spec: 120 x 120), at 1920 and halved alike
+        for lens in (cameras.HEAD_1920, cameras.HEAD_EYE):
+            np.testing.assert_allclose(lens.field_of_view(), (117.9, 118.0), atol=0.06)
+        np.testing.assert_allclose(cameras.WRIST_EYE.field_of_view(), (120.0, 75.0), atol=0.06)  # our estimate
+        self.assertEqual((cameras.HEAD_EYE.width, cameras.HEAD_EYE.height), (960, 960))
+        self.assertEqual((cameras.WRIST_EYE.width, cameras.WRIST_EYE.height), (640, 400))
+        for lens in (cameras.HEAD_EYE, cameras.WRIST_EYE):  # every pixel's ray projects back onto that pixel
+            rays, valid = lens.rays()
+            u, v, covered = lens.project(rays[valid])
+            rows, columns = np.nonzero(valid)
+            self.assertTrue(covered.all())
+            np.testing.assert_allclose(u, columns, atol=1e-6)
+            np.testing.assert_allclose(v, rows, atol=1e-6)
+        self.assertEqual(int((~cameras.HEAD_EYE.rays()[1]).sum()), 6927)  # the corners past the lens model
+
+    def test_fisheye_render(self):
+        """The head eye's image puts things where its lens model says. Small spheres along known rays, over the whole
+        image and so on every cube face, show at the pixels the model projects them to, within half a pixel; the
+        middle of the image matches a MuJoCo pinhole of the same focal length (so it is not turned or flipped); and
+        each gripper link's centre of mass projects onto a pixel that shows that link."""
+        data = self.home_data()
+        eye = self.model.camera("head_left_eye").id
+        rays, _ = cameras.HEAD_EYE.rays()
+        to_world = data.cam_xmat[eye].reshape(3, 3) @ cameras.CV_FROM_MJ  # columns: the optical frame's axes
+        grid = (60, 250, 480, 710, 900)
+        points = [data.cam_xpos[eye] + 0.5 * to_world @ rays[v, u] for v in grid for u in grid]
+
+        def add_markers(spec):
+            for k, point in enumerate(points):
+                spec.worldbody.add_geom(name=f"marker{k}", type=mujoco.mjtGeom.mjGEOM_SPHERE, size=[0.004, 0, 0],
+                                        pos=point, contype=0, conaffinity=0)
+
+        marked = sweep_contacts.compile_without_visuals(convert.SCENE, edit=add_markers)  # floor and markers only
+        marked_data = mujoco.MjData(marked)
+        mujoco.mj_resetDataKeyframe(marked, marked_data, marked.key("home").id)
+        mujoco.mj_forward(marked, marked_data)
+        with cameras.FisheyeCamera(marked, "head_left_eye") as fisheye:
+            labels = fisheye.render_segmentation(marked_data)
+            u, v, seen = fisheye.project(marked_data, np.array(points))
+            self.assertEqual(set(fisheye.lut.faces), set(cameras.FACES))
+        self.assertTrue(seen.all())
+        for k in range(len(points)):
+            rows, columns = np.nonzero((labels[..., 1] == mujoco.mjtObj.mjOBJ_GEOM)
+                                       & (labels[..., 0] == marked.geom(f"marker{k}").id))
+            self.assertGreater(len(rows), 3, k)
+            self.assertLess(float(np.hypot(columns.mean() - u[k], rows.mean() - v[k])), 0.5, k)
+
+        lens = cameras.HEAD_EYE.scaled(240, 240)
+        fovy = float(self.model.cam_fovy[eye])
+        with mujoco.Renderer(self.model, 240, 240) as renderer:
+            with cameras.FisheyeCamera(self.model, "head_left_eye", lens, renderer=renderer) as fisheye:
+                image = fisheye.render(data).astype(float)
+                labels = fisheye.render_segmentation(data)
+                links = ("lg_link3", "lg_link6", "lg_link8", "rg_link3", "rg_link6", "rg_link8")  # fingers, cameras
+                u, v, seen = fisheye.project(data, np.array([data.body(link).xipos for link in links]))
+            try:
+                self.model.cam_fovy[eye] = np.degrees(2 * np.arctan(120 / lens.fy))
+                renderer.update_scene(data, camera=eye)
+                pinhole = renderer.render().astype(float)
+            finally:
+                self.model.cam_fovy[eye] = fovy
+        middle = (slice(80, 160), slice(80, 160))  # up to 0.47 rad off axis: the lenses differ by 1.4 px on average
+        self.assertLess(float(np.abs(image[middle] - pinhole[middle]).mean()), 6.0)
+        self.assertGreater(float(np.abs(image[middle] - pinhole[::-1, ::-1][middle]).mean()), 20.0)  # turned 180 deg
+        self.assertTrue(seen.all())
+        for link, row, column in zip(links, np.rint(v).astype(int), np.rint(u).astype(int)):
+            label, kind = labels[row, column]
+            self.assertEqual(kind, mujoco.mjtObj.mjOBJ_GEOM, link)
+            self.assertEqual(self.model.body(self.model.geom_bodyid[label]).name, link)
 
     def test_assets(self):
         meshes = self.xml.findall("asset/mesh")

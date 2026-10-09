@@ -27,6 +27,7 @@ SCENES = Path(__file__).resolve().parents[1]
 MODEL = SCENES.parent / "model"
 sys.path[:0] = [str(SCENES), str(MODEL)]
 import build_mobile  # noqa: E402
+import cameras  # noqa: E402
 from mobile_base import MobileBase, drivable_variant  # noqa: E402
 
 QPOS_SIZE = {int(mujoco.mjtJoint.mjJNT_FREE): 7, int(mujoco.mjtJoint.mjJNT_BALL): 4,
@@ -162,9 +163,9 @@ class SceneChecks:
             self.assertGreater(count, 20, name)
 
     def head_camera_pixels(self) -> dict:
-        """Each object's pixels in a 480 x 480 head image at home (square, as the robot's 960 x 960 head images: 120 deg
-        either way). This needs the full scene, since the arms' visual meshes could hide an object, so it also checks
-        that the scene has every visual geom of the robot file."""
+        """Each object's pixels at home in the head's left eye, the one the vendor's policy sees, through its fisheye
+        lens (model/cameras.py) at half the stream's size, 480 x 480. This needs the full scene, since the arms' visual
+        meshes could hide an object, so it also checks that the scene has every visual geom of the robot file."""
         model = mujoco.MjModel.from_xml_path(str(self.path))
         names = {geom.get("name") for geom in ET.parse(self.robot_path).find("worldbody").iter("geom")}
         self.assertFalse({name for name in names if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name) < 0})
@@ -172,9 +173,9 @@ class SceneChecks:
         mujoco.mj_resetDataKeyframe(model, data, model.key("home").id)
         mujoco.mj_forward(model, data)
         with mujoco.Renderer(model, 480, 480) as renderer:
-            renderer.enable_segmentation_rendering()
-            renderer.update_scene(data, camera="head")
-            ids, types = np.moveaxis(renderer.render(), -1, 0)
+            with cameras.FisheyeCamera(model, "head_left_eye", cameras.HEAD_EYE.scaled(480, 480),
+                                       renderer=renderer) as eye:
+                ids, types = np.moveaxis(eye.render_segmentation(data), -1, 0)
         geoms = ids[types == mujoco.mjtObj.mjOBJ_GEOM]
         objects = [model.body(self.model.body(body).name).id for body in self.objects]
         return {model.body(body).name: int(np.isin(geoms, np.flatnonzero(model.geom_bodyid == body)).sum())

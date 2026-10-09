@@ -6,13 +6,15 @@
 > mirror image), and joint 2 at 1.8 rad where the robot allows 1.9. Like the robot, the simulator clips arm targets to
 > its ranges, so it never reaches an angle the robot would clip, but it clips a few the robot reaches. Past about 1.72
 > rad, joint 2 presses the shoulder into the torso, in the vendor's CAD too. (The previous URDF had joint 3's range
-> mirrored; v2 fixed that.) The simulated cameras are also simplified (see [The model](#the-model)).
+> mirrored; v2 fixed that.) The simulated cameras render the real eyes' fisheye lenses, but the wrist lenses are our
+> estimate until the robot's calibration is known (see [The model](#the-model)).
 
 A MuJoCo simulation of the TeleAvatar 2.0 robot: two 7-joint arms with parallel grippers, a 0.74 m lift carrying the
 torso, a head camera and two wrist cameras, and an omni-wheel base. The base is fixed by default, as in the vendor's
 simulator; a drivable base, which we added, is opt-in (`--mobile-base`). A ROS 2 simulator speaks the robot's joint
 API, so clients written for the real arms run against it unchanged. Scenes (`scenes/`) put the robot in a world: the
-first is a table with a red and a green cube.
+first is a table with a red and a green cube. Tasks (`tasks/`) give a scene a goal: the first is stacking the red cube
+on the green one, with the vendor's pi0.5 interface and a scripted expert that does it with humanoid side grasps.
 
 ## Quick start
 
@@ -55,16 +57,20 @@ From the repository root, with the environment active (`source .venv/bin/activat
 | MuJoCo's own viewer | `python3 -m mujoco.viewer --mjcf=model/scene.xml` |
 | ... with the drivable base (its `base_*` sliders; the wheels don't turn there) | `python3 -m mujoco.viewer --mjcf=model/scene_mobile.xml` |
 | Video or still, rendered offscreen (`--motion hold\|wave`, `--camera head`, ...) | `python3 scripts/render_video.py --output outputs/wave.mp4` |
+| ... what an eye sees, through its fisheye lens (`head_left_eye`, `left_wrist_right_eye`, ...) | `python3 scripts/render_video.py --camera head_left_eye --output outputs/eye.png` |
 | ... the base driving around a square | `python3 scripts/render_video.py --mobile-base --motion drive --output outputs/drive.mp4` |
 | ROS 2 simulator with the robot's arm API (`--viewer` to watch it) | `./model/run_sim.sh` |
 | The vendor's ROS client against it | `python3 mujoco/test_control.py --reordered-names` |
 | A scene: the robot at a table with two cubes (`scenes/README.md`; `--model` works in all the tools above) | `python3 model/play.py --model scenes/table_cubes.xml` |
 | ... with the drivable base (every scene has it) | `python3 model/play.py --model scenes/table_cubes.xml --mobile-base` |
-| Unit tests (23, about 10 s) | `python3 -m unittest discover -s model/tests -v` |
-| Scene tests (17, about 8 s) | `python3 -m unittest discover -s scenes/tests -v` |
+| The stacking task, done by the scripted expert (`tasks/README.md`; `--video` for MP4s) | `python3 tasks/run.py --policy expert --seeds 0 1 2 --out outputs/tasks/expert` |
+| Unit tests (26, about 12 s) | `python3 -m unittest discover -s model/tests -v` |
+| Scene tests (17, about 10 s) | `python3 -m unittest discover -s scenes/tests -v` |
+| Task tests (9, about 7 s) | `python3 -m unittest discover -s tasks/tests -v` |
 
-`play.py` is MuJoCo's viewer with additions: it starts in the `home` pose, shows what the head and wrist cameras see,
-follows the robot, and with `--mobile-base` drives the base from the keyboard and turns the wheels to match. Backspace
+`play.py` is MuJoCo's viewer with additions: it starts in the `home` pose, shows what the robot's eyes see (the head's
+left eye and each wrist's inner eye, the three the vendor's policy uses, through their fisheye lenses), follows the
+robot, and with `--mobile-base` drives the base from the keyboard and turns the wheels to match. Backspace
 returns home, Space pauses, and `[` and `]` switch the view to the robot's cameras. With `--mobile-base`, Up and Down
 also change the driving speed, Left and Right the turn rate, keypad 4 and 6 move sideways, and End stops.
 
@@ -80,7 +86,11 @@ domain 29, which is the production robot's.
 From Python (headless machines: set `MUJOCO_GL=egl` before importing mujoco):
 
 ```python
+import sys
 import mujoco
+
+sys.path.insert(0, "model")
+from cameras import FisheyeCamera
 
 model = mujoco.MjModel.from_xml_path("model/scene.xml")
 data = mujoco.MjData(model)
@@ -88,9 +98,8 @@ mujoco.mj_resetDataKeyframe(model, data, model.key("home").id)
 data.ctrl[model.actuator("lift").id] = 0.4      # lift target in m below the top: lowers the torso
 for _ in range(1000):                           # 2 s
     mujoco.mj_step(model, data)
-renderer = mujoco.Renderer(model, 480, 640)
-renderer.update_scene(data, camera="left_wrist")
-image = renderer.render()                       # what the left wrist camera sees, 480 x 640 x 3
+with FisheyeCamera(model, "left_wrist_right_eye") as eye:  # the left wrist's inner eye, through its fisheye lens
+    image = eye.render(data)                    # what it sees: 400 x 640 x 3, as the robot's image
 ```
 
 ## The model
@@ -108,12 +117,14 @@ textured meshes:
   online documentation) is listed in `model/README.md`, under "Where the values come from". If the simulation and
   the robot disagree, check there first.
 - Gains and the gripper coupling are nominal: the vendor doesn't publish them.
-- The cameras are simplified: each is a single undistorted (pinhole) camera. The head's field of view is the real
-  one, 120 x 120 degrees (vendor user manual); render it square, as the robot's 960 x 960 head images (a 4:3 image
-  shows 133 degrees across). The wrists' is a nominal 58 degrees. The real robot has stereo fisheye pairs (head
-  960 x 960 per eye, wrists 640 x 400), calibrated for each robot, so simulated images don't look exactly like real
-  ones: a fisheye squeezes the edges of the view, a pinhole stretches them. Account for that before training a policy
-  for the real robot on them.
+- Cameras: the real robot has three stereo pairs of fisheye eyes, and their images reach a policy unrectified (head
+  960 x 960 per eye, wrists 640 x 400). The model has a camera at each eye (`head_left_eye`, `head_right_eye`,
+  `left_wrist_left_eye`, ...), 65 mm (head) and 50 mm (wrists) apart as the vendor gives them, and `model/cameras.py`
+  renders them through their lenses (MuJoCo renders only pinholes: it renders five 90-degree views and remaps them).
+  The head's lens is the calibration the vendor sent for one head eye; the wrists' is our estimate from the spec
+  (120 x 76 degrees), until the robot's own calibration file (`calibration.json`) is known. Each pair also keeps a
+  plain pinhole camera at its centre (`head`, `left_wrist`, `right_wrist`) for quick views; their images are not what
+  the robot sees.
 
 **The base and wheels.** By default (`model/scene.xml`) the base is fixed to the floor and the wheels don't turn, as
 in the vendor's simulator. We added a drivable base ourselves, so for safety it is opt-in: `--mobile-base` in
@@ -132,6 +143,8 @@ interface, so the ROS simulator uses the fixed base.
 - `scenes/`: worlds for the robot (a table, objects, cameras), kept apart from the model: they attach
   `model/robot.xml` unchanged, and their generated `_mobile` twins `model/robot_mobile.xml`. `scenes/README.md` says
   how to use them and how to add one.
+- `tasks/`: goals on the scenes (seeded layouts, success checks, instructions), the vendor's pi0.5 interface, a
+  scripted expert and an evaluation loop. `tasks/README.md` has the details.
 - `mujoco/`: the vendor's original dual-arm simulator, kept as delivered.
 - `setup/`: environment, checks, and `unpack_assets.py`. `scripts/render_video.py`: videos and stills.
 - `CLAUDE.md`: cluster setup (FASRC), every check, and notes on rendering and the model.

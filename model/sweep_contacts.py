@@ -29,10 +29,12 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 
 
-def compile_without_visuals(path: Path) -> mujoco.MjModel:
+def compile_without_visuals(path: Path, edit=None) -> mujoco.MjModel:
     """The model with its visual meshes removed (drawn only: no mass, no contacts), which leaves the dynamics and
-    collisions unchanged and loads in a fraction of the memory."""
+    collisions unchanged and loads in a fraction of the memory. edit(spec), if given, changes the spec first."""
     spec = mujoco.MjSpec.from_file(str(path))
+    if edit is not None:
+        edit(spec)
     for geom in [geom for geom in spec.geoms if geom.classname.name == "visual"]:
         spec.delete(geom)
     for kind, used in (("meshes", {geom.meshname for geom in spec.geoms}),
