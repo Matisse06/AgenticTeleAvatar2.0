@@ -26,6 +26,7 @@ from typing import Optional, Sequence
 import mujoco
 import numpy as np
 import rclpy
+import rclpy.executors
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, Int32, String
@@ -243,6 +244,11 @@ def parse_args(args: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args)
 
 
+# Ctrl-C: where rclpy installs its own SIGINT handler (ROS 2 rolling), it shuts the context down and spin_once raises
+# ExternalShutdownException instead of KeyboardInterrupt. Either way the node stops cleanly.
+STOPPED = (KeyboardInterrupt, getattr(rclpy.executors, "ExternalShutdownException", KeyboardInterrupt))
+
+
 def main(args: Optional[Sequence[str]] = None) -> None:
     parsed = parse_args(args)
     rclpy.init(args=None)
@@ -259,8 +265,13 @@ def main(args: Optional[Sequence[str]] = None) -> None:
             rclpy.spin_once(node, timeout_sec=0.05)
             if viewer is not None:
                 viewer.sync()
-    except KeyboardInterrupt:
+    except STOPPED:
         pass
+    except Exception:
+        # Ctrl-C under rclpy's own handler can also shut the context down in the middle of spin_once, which then fails
+        # to build its wait set (RCLError). Only an error while the context is still up is a real one.
+        if rclpy.ok():
+            raise
     finally:
         if viewer is not None:
             viewer.close()
