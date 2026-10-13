@@ -13,6 +13,11 @@ desktop.ini
 .claude/settings.local.json
 CLAUDE.local.md
 
+# --- Private code (the task and agent work): local only, never committed or pushed; this repository is public ---
+/tasks/
+/agent/
+/setup/requirements-agent.txt
+
 # --- Secrets / credentials ---
 .env
 .env.*

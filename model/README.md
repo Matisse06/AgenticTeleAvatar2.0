@@ -21,7 +21,7 @@ The meshes and textures are not in git (590 MB; GitHub refuses files over 100 MB
 pip install -r setup/requirements.lock py7zr                    # on the cluster: ./sim.sh uv pip install py7zr
 python3 setup/unpack_assets.py urdf_20260825_textured9.21.7z    # -> model/vendor/{visual,collision}/, checksummed
 python3 model/convert.py                                        # -> robot.xml, robot_mobile.xml, textures_1024/
-python3 -m unittest discover -s model/tests -v                  # 23 tests, about 10 s
+python3 -m unittest discover -s model/tests -v                  # 26 tests, about 12 s
 ```
 
 Download the archive from the robot's documentation page,
@@ -64,12 +64,17 @@ meshes, so any of them works.
   mujoco.mj_step(model, data)
   ```
 - Cameras:
-  - on the robot: `head`, `left_wrist`, `right_wrist`
+  - the robot's eyes, one per lens of its three stereo pairs: `head_left_eye`, `head_right_eye` (65 mm apart),
+    `left_wrist_left_eye`, `left_wrist_right_eye`, `right_wrist_left_eye`, `right_wrist_right_eye` (50 mm apart).
+    The real lenses are fisheyes and their images reach a policy unrectified, so render the eyes through them with
+    `cameras.py` (`FisheyeCamera(model, "head_left_eye").render(data)`: 960 x 960 for a head eye, 640 x 400 for a
+    wrist eye, as the robot sends them). The head's lens is the vendor's calibration of one head eye; the wrists' is
+    our estimate (120 deg across, 75 up and down) until the robot's calibration is known.
+  - at each pair's centre, plain pinhole cameras for quick views: `head` (120 deg, the spec), `left_wrist`,
+    `right_wrist` (58 deg, nominal). Rendered directly by MuJoCo, they don't look like the robot's images.
   - in the scene: `overview`, `front`, `left_side`
-  - Simplified: one undistorted (pinhole) camera at each spot. The head's field of view is the vendor's, 120 x 120
-    deg: render it square, like the robot's 960 x 960 head images (a 4:3 image shows 133 deg across). The wrists'
-    is a nominal 58 deg. The real ones are stereo fisheye pairs, calibrated for each robot (see `CLAUDE.md`), so
-    simulated images differ from real ones.
+  - The eyes the vendor's pi0.5 policy uses are `cameras.POLICY_EYES`: the head's left eye and each wrist's inner one
+    (the left wrist's right eye, the right wrist's left eye).
 - Sites (the URDF's reference frames): `left_ee`, `right_ee`, `left_shoulder_base`, `right_shoulder_base`
   (each shoulder's rotation centre), `virtual_base`; `left/right_base_virtual` are aliases of the shoulder bases.
 - Joint angles mean the same as in the vendor model and the ROS API: `l_jointN` is `armLN_joint`, `r_jointN` is
@@ -112,7 +117,8 @@ dataset (training and evaluation alike).
 
 Everything that is not in the vendor's URDF or MuJoCo files is listed here: values we chose, estimated or assumed,
 and facts taken from the vendor's online documentation. If the simulation behaves differently from the real robot,
-look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has the details.
+look here first. The constants are in `convert.py` unless noted (the lenses: `cameras.py`); `CLAUDE.md` has the
+details.
 
 **From the vendor's files**
 - URDF (`teleavatar_urdf_20260928-v2.urdf`, published 2026-10-08; it differs from 20260928 only in the arm joint
@@ -133,9 +139,20 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 | the gripper takes a force command from 0 to 1: +2.0 N m at 0 (opening), 0 at 0.1, -1.6 N m at 1 (closing) (§4.4.1); the URDF's 2 N m effort limit matches | yes: the grippers are torque motors, and `gripper.py` applies this curve |
 | the gripper is closed at motor angle 0 and opens as it grows (§4.4.2) | yes, the same direction |
 | the head cameras' centre lies between their two eyes, looking 26 deg down (appendix A.3) | yes, it is the URDF's `eye_Link`, where the `head` camera sits |
-| the cameras are stereo fisheye pairs (head 960 x 960 per eye, wrists 640 x 400), calibrated for each robot (§5) | no, see the cameras below |
-| the cameras' fields of view, from the user manual (https://www.dexteleop.com/docs/user-manual §2.3): head 120 x 120 deg per eye (sensors 1920 x 1920 x 2), wrists 120 x 76 deg (2560 x 800 x 2), 45 Hz | head: yes, `fovy` 120 on a pinhole camera; wrists: no, 58 deg nominal |
+| the cameras are stereo fisheye pairs, OpenCV fisheye model, calibrated for each robot; raw and recorded images are not rectified (§5.5) | yes: a camera per eye, rendered through its lens (`cameras.py`) |
+| the stream: each eye downsampled before stitching (§3.1.2), cut out as 960 x 960 (head) and 640 x 400 (wrist) images (§5.2; their `rtp_video_interface.py` only crops) | yes: the eyes' images have these sizes |
+| the cameras' fields of view, from the user manual (https://www.dexteleop.com/docs/user-manual §2.3): head 120 x 120 deg per eye (sensors 1920 x 1920 x 2), wrists 120 x 76 deg (2560 x 800 x 2), 45 Hz | head: the calibration below gives 117.9 x 118.0 deg; wrists: our lens estimate spans 120 x 75 |
+| the eyes a pi0.5 policy gets (their openpi `examples/teleavatar_v2/ros2_interface.py`): the head's left eye, the left wrist's right eye, the right wrist's left eye | yes: `cameras.POLICY_EYES`, `play.py`'s insets, `tasks/openpi.py` |
 | the base accelerates at up to 0.3 m/s^2 and brakes at up to 0.6 m/s^2 (§4.5) | no, `mobile_base.py` ramps at 1 m/s^2 |
+
+**From the vendor by email** (2026-10-08, not published)
+
+| fact | used in the model? |
+|---|---|
+| one head eye's calibration, OpenCV fisheye, for 1920 x 1920 images: fx 957.7522723586153, fy 957.058449178608, cx 953.0942242558152, cy 961.8638796212753; k1..k4 -0.021403661461248613, 0.0025639478168715288, -0.0031704737916179947, -0.0018083392738524986 | yes: both head eyes' lens, halved for 960 x 960 (`cameras.HEAD_1920`, `HEAD_EYE`); not the SDK's built-in default (checked against horus_client_demo); which robot and eye it comes from is not said |
+| eye sensors: head 1920 x 1920 (the output image uncropped), wrist 1280 x 800 | yes: the stream's images are these halved |
+| stereo baselines: head 65 mm, wrist 50 mm | yes: the eye cameras' spacing (the CAD's lens rings are centred 65.0 and 50.0 mm apart) |
+| every camera's calibration, extrinsics included, is in the robot's `calibration.json` (`camera_parameters`: `head_stereo_camera`, `left_wrist_stereo_camera`, `right_wrist_stereo_camera`) | not yet: the file is not public; it would replace the wrist estimate and the eyes' assumed placement |
 
 **Chosen, estimated or assumed by us**
 
@@ -151,8 +168,12 @@ look here first. The constants are in `convert.py` unless noted; `CLAUDE.md` has
 | arm joint 4 damping | 0 | the measured value is negative |
 | gravity compensation | in the arm, lift and gripper controllers (at home, 0.0000 N m on the gripper input) | assumed (`--no-gravcomp` turns it off) |
 | `home` keyframe | lift 0.136 m, grippers open | the lift puts the shoulders 1.27 m up, as in the old model |
-| cameras | one undistorted (pinhole) camera at the centre of each stereo pair; the wrists' field of view 58 deg (the head's is the vendor's, above) | nominal until the calibration is known |
-| wrist cameras | at the centre of the lens face (measured on the mesh), fingers at the bottom of the image | estimated; orientation assumed |
+| wrist lenses (`cameras.WRIST_EYE`) | an ideal equidistant fisheye (k1..k4 = 0), f = 305.6 px on the 640 x 400 image (120 deg across, 75 up and down), centred | estimated from the spec until the robot's calibration is known |
+| head lenses (`cameras.HEAD_EYE`) | the emailed calibration for both eyes (it is one eye's), halved with pixel centres at integers: c' = (c + 0.5) / 2 - 0.5 | assumed: the robot's downscale filter is not published |
+| eye placement | the eyes half a baseline either side of the pair's centre camera, along its image x axis, looking the same way | assumed (the per-robot extrinsics are in `calibration.json`) |
+| fisheye rendering | up to five 90 deg views (cube faces) with 1 px margin, 960 px square for the robot's image sizes (`cameras.FACE_SIZE`; the image's larger side otherwise), the same in every tool; remapped bilinearly with 8-bit fixed-point weights; pixels past the lens model black (the head image's corners, 0.75%) | ours (`cameras.py`); checked: 25 markers over the head eye's image land within 0.23 px of their projections |
+| centre cameras | pinholes: `head` 120 deg (the spec), the wrists 58 deg | nominal, for quick views only |
+| wrist cameras | at the centre of the lens face (measured on the mesh), fingers at the bottom of the image | estimated; the orientation is assumed, consistent with the vendor's choice of each wrist's inner eye |
 | textures | scaled to 1024 px (the vendor's are 2048) | memory; `--texture-size 0` uses the originals |
 | base height | axles 89.7 mm up | measured on the wheel meshes |
 | collision shapes | 323 convex pieces (CoACD) | the raw meshes cannot be used (see below) |

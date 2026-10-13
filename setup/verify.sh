@@ -73,6 +73,8 @@ run "new: render video" python3 scripts/render_video.py --output "$out/new_wave.
 # The scenes (scenes/, see scenes/README.md): the robot at a table with objects.
 run "scenes: unit tests" python3 -m unittest discover -s scenes/tests -v
 run "scenes: render still" python3 scripts/render_video.py --model scenes/table_cubes.xml --output "$out/table_cubes.png"
+run "scenes: an eye's still" python3 scripts/render_video.py --model scenes/table_cubes.xml --camera head_left_eye \
+  --output "$out/table_cubes_head_left_eye.png"
 
 echo; echo "===== summary ($(date '+%F %T'))"
 printf '%s\n' "${results[@]}"

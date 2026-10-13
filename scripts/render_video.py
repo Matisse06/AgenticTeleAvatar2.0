@@ -31,6 +31,7 @@ import numpy as np
 DEFAULT_MODEL = Path(__file__).resolve().parents[1] / "model" / "scene.xml"
 sys.path.insert(0, str(DEFAULT_MODEL.parent))
 import gripper  # noqa: E402  (model/gripper.py: the robot's gripper command -> motor torque)
+from cameras import LENSES, FisheyeCamera, face_size  # noqa: E402  (model/cameras.py: the eyes' fisheye lenses)
 from mobile_base import drivable_variant  # noqa: E402  (model/scene.xml -> model/scene_mobile.xml, and scenes' twins)
 ARM_JOINT = re.compile(r"^(l_joint|r_joint)\d$|^arm[LR]\d_joint$")  # vendor model / new model
 # 'drive': (seconds, forward m/s, left m/s, turn rad/s) in the robot's frame. 0.6 m ahead, 0.6 m left, a quarter turn
@@ -51,9 +52,12 @@ def main() -> None:
     parser.add_argument("--amplitude", type=float, default=0.3, help="wave amplitude per joint, rad")
     parser.add_argument("--period", type=float, default=4.0, help="wave period, s")
     parser.add_argument("--duration", type=float, help="simulated seconds (default 8; 'drive': the whole path, 12 s)")
-    parser.add_argument("--camera", default="overview", help="camera name from the model, or 'free' for the default view")
-    parser.add_argument("--width", type=int, default=960)
-    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--camera", default="overview",
+                        help="camera name from the model, or 'free' for the default view; an eye (head_left_eye, "
+                             "left_wrist_right_eye, ...) renders through its fisheye lens, at the robot's image size")
+    parser.add_argument("--width", type=int, help="pixels (default 960, or an eye's own width)")
+    parser.add_argument("--height", type=int, help="pixels (default 720, or an eye's own height)")
+    parser.add_argument("--pinhole", action="store_true", help="render an eye as a plain MuJoCo (pinhole) camera")
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--show-collision", action="store_true",
                         help="also draw the collision geometry: on the vendor model grey copies of the visual meshes "
@@ -70,8 +74,18 @@ def main() -> None:
         if not path.is_file():
             parser.error(f"--mobile-base: {source} has no drivable-base variant ({path} does not exist)")
     model = mujoco.MjModel.from_xml_path(str(path.resolve()))
-    model.vis.global_.offwidth = max(model.vis.global_.offwidth, args.width)
-    model.vis.global_.offheight = max(model.vis.global_.offheight, args.height)
+    lens = None
+    if args.camera in LENSES and not args.pinhole and mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA,
+                                                                       args.camera) >= 0:
+        lens = LENSES[args.camera]
+        if args.width or args.height:  # the same lens on a resized image
+            width = args.width or round(args.height * lens.width / lens.height)
+            lens = lens.scaled(width, args.height or round(width * lens.height / lens.width))
+        args.width, args.height = lens.width, lens.height
+    args.width, args.height = args.width or 960, args.height or 720
+    size = (face_size(lens),) * 2 if lens else (args.width, args.height)  # fisheye: its square cube faces
+    model.vis.global_.offwidth = max(model.vis.global_.offwidth, size[0])
+    model.vis.global_.offheight = max(model.vis.global_.offheight, size[1])
     if not args.show_collision:
         # The collision geoms reuse the full-detail visual meshes (671k triangles) and sit in group 0 with the floor.
         # Move them to group 3, which is hidden by default. That only affects drawing: collisions use contype/conaffinity.
@@ -89,15 +103,23 @@ def main() -> None:
         mujoco.mjv_defaultFreeCamera(model, camera)
     else:
         camera = args.camera
-    renderer = mujoco.Renderer(model, args.height, args.width)
+    renderer = mujoco.Renderer(model, size[1], size[0])
     renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = not args.no_shadows
     option = mujoco.MjvOption()
     option.geomgroup[3] = args.show_collision  # the new model keeps its collision pieces in group 3
+    fisheye = FisheyeCamera(model, args.camera, lens, renderer=renderer, shadows=not args.no_shadows) if lens else None
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    if args.output.suffix.lower() in (".png", ".jpg", ".jpeg"):
+    def frame() -> np.ndarray:
+        if fisheye is not None:
+            return fisheye.render(data, scene_option=option)
         renderer.update_scene(data, camera=camera, scene_option=option)
-        imageio.imwrite(args.output, renderer.render())
+        return renderer.render()
+
+    if args.output.suffix.lower() in (".png", ".jpg", ".jpeg"):
+        imageio.imwrite(args.output, frame())
+        if fisheye is not None:
+            fisheye.close()
         renderer.close()
         print(f"wrote {args.output.resolve()} (home keyframe, camera {args.camera})")
         return
@@ -137,10 +159,11 @@ def main() -> None:
             mujoco.mj_step(model, data)
             max_error = max(max_error, float(np.max(np.abs(data.qpos[qadr[arm]] - data.ctrl[arm]))))
             if data.time >= next_frame:
-                renderer.update_scene(data, camera=camera, scene_option=option)
-                writer.append_data(renderer.render())
+                writer.append_data(frame())
                 frames += 1
                 next_frame += 1.0 / args.fps
+    if fisheye is not None:
+        fisheye.close()
     renderer.close()
     print(f"wrote {args.output.resolve()}: {frames} frames, {args.duration:g} s '{args.motion}' at {args.fps} fps; "
           f"max arm |qpos - ctrl| {max_error:.3f} rad; finite state: {bool(np.all(np.isfinite(data.qpos)))}")

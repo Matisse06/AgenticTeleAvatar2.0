@@ -9,8 +9,9 @@
 
 It needs a display (on the cluster, a Remote Desktop: see CLAUDE.md). It starts at the home keyframe and runs in real
 time, with the view following the robot (Esc frees it).
-- Insets (right): what the head and wrist cameras see, rendered like render_video.py's images. The head's is square,
-  like the robot's head images, so it shows the camera's 120 x 120 deg; the wrists' are 4:3.
+- Insets (right): what the robot's eyes see, through their fisheye lenses (model/cameras.py): the three the vendor's
+  policy uses, the head's left eye (square, as the robot's 960 x 960 head images) and each wrist's inner eye (1.6:1,
+  as its 640 x 400 images).
 - Control panel (right): a slider per actuator. Arms in rad; lift in m (0 is the top, positive lowers the torso);
   grippers in N m of motor torque, from -1.6 (closing) to +2.0 (opening), the range the robot's 0..1 command spans
   (model/gripper.py). With --mobile-base also the base's velocity in the world frame: base_x and
@@ -36,12 +37,13 @@ import mujoco.viewer
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from cameras import LENSES, POLICY_EYES, FisheyeCamera, face_size
 from mobile_base import MobileBase, drivable_variant
 
 HERE = Path(__file__).resolve().parent
-# (camera, label, square). The insets render at 4:3; a square one keeps the middle of the image. For the head that is
-# its 120 x 120 deg (the full 4:3 image spans 133 deg across), and it costs no second renderer (0.7 GB with Mesa).
-INSETS = (("head", "head", True), ("left_wrist", "left wrist", False), ("right_wrist", "right wrist", False))
+# (camera, label): the eyes the vendor's policy sees (cameras.POLICY_EYES)
+INSETS = ((POLICY_EYES["head_camera"], "head, left eye"), (POLICY_EYES["left_color"], "left wrist, right eye"),
+          (POLICY_EYES["right_color"], "right wrist, left eye"))
 STEPS = np.array([0.1, 0.1, 0.25])  # forward, left (m/s) and turn (rad/s) change per key press
 KEYS = {  # GLFW key code -> direction of the change; None stops
     265: (1, 0, 0), 264: (-1, 0, 0), 263: (0, 0, 1), 262: (0, 0, -1),  # arrows up, down, left, right
@@ -68,7 +70,7 @@ def main() -> None:
     parser.add_argument("--model", type=Path, help="a model or scene file (default: model/scene.xml)")
     parser.add_argument("--no-cameras", action="store_true", help="no camera insets")
     parser.add_argument("--inset-width", type=int, default=192,
-                        help="pixels (the wrists' insets are 4:3, the head's square and as tall)")
+                        help="pixels (the head's inset is square, the wrists' 1.6:1, as the robot's images)")
     parser.add_argument("--duration", type=float, default=0.0, help="seconds; 0 runs until the window is closed")
     args = parser.parse_args()
 
@@ -100,22 +102,27 @@ def main() -> None:
 
     # The insets' offscreen (EGL) context must exist before the viewer's window: with NVIDIA's driver, no new EGL
     # context can be made current once the process has a GLX context (tested on this workstation, 2026-10-01).
-    renderer = None
+    renderers, eyes = {}, []  # one renderer per cube-face size (one for every inset at the default width)
     if not args.no_cameras:
         try:
-            renderer = mujoco.Renderer(model, round(args.inset_width * 3 / 4), args.inset_width)
+            for camera, label in INSETS:
+                if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera) < 0:
+                    continue  # a model without the eye cameras (the vendor's)
+                lens = LENSES[camera]
+                lens = lens.scaled(args.inset_width, round(args.inset_width * lens.height / lens.width))
+                size = face_size(lens)
+                if size not in renderers:
+                    renderers[size] = mujoco.Renderer(model, size, size)
+                eyes.append((FisheyeCamera(model, camera, lens, renderer=renderers[size]), label))
         except Exception as error:  # e.g. no EGL on this machine: run without the insets
             print(f"no camera insets ({error})")
+            eyes = []
         font = ImageFont.load_default(size=max(10, args.inset_width // 14))
 
     def insets(viewport: mujoco.MjrRect) -> list:
         images, top = [], viewport.bottom + viewport.height
-        for camera, label, square in INSETS:
-            renderer.update_scene(data, camera=camera)
-            pixels = renderer.render()
-            if square:
-                left = (renderer.width - renderer.height) // 2
-                pixels = np.ascontiguousarray(pixels[:, left:left + renderer.height])
+        for eye, label in eyes:
+            pixels = eye.render(data)
             image = Image.fromarray(pixels)
             ImageDraw.Draw(image).text((6, 3), label, font=font, fill=(255, 255, 255), stroke_width=2,
                                        stroke_fill=(0, 0, 0))
@@ -141,10 +148,12 @@ def main() -> None:
                 f"{wheels} rad/s\narrows, keypad: drive   End: stop\nBackspace: home   Space: pause")
 
     try:
-        run(args, model, data, base, state, on_key, insets if renderer is not None else None, status)
+        run(args, model, data, base, state, on_key, insets if eyes else None, status)
     finally:
         join_viewer_thread()
-        if renderer is not None:
+        for eye, _ in eyes:
+            eye.close()
+        for renderer in renderers.values():
             renderer.close()
 
 
